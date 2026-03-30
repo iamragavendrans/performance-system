@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-Powered Performance Ratings</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Auth Container -->
+  <div id="auth-container" class="auth-container">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <h1>Performance AI</h1>
+        <p>AI-Powered Performance Ratings System</p>
+      </div>
+      <form id="login-form">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="login-email" class="form-input" placeholder="Enter your email" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="login-password" class="form-input" placeholder="Enter your password" required>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In</button>
+      </form>
+      <p class="text-center mt-4" style="color: var(--text-secondary); font-size: 14px;">
+        Demo: admin@company.com / admin123
+      </p>
+    </div>
+  </div>
+
+  <!-- Main Application -->
+  <div id="app" class="app-container hidden">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        Performance AI
+      </div>
+      <ul class="nav-menu" id="nav-menu">
+        <!-- Dynamic nav items based on role -->
+      </ul>
+      <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border);">
+        <button class="btn btn-secondary" style="width: 100%;" onclick="logout()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          Sign Out
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="page-header">
+        <h1 class="page-title" id="page-title">Dashboard</h1>
+        <div class="user-info">
+          <div>
+            <div class="user-name" id="user-name">Loading...</div>
+            <div class="user-role" id="user-role">Loading...</div>
+          </div>
+          <div class="user-avatar" id="user-avatar">?</div>
+        </div>
+      </header>
+      <div id="content-area">
+        <!-- Dynamic content -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal Template -->
+  <div id="modal-overlay" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modal-title">Modal</h2>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let currentUser = null;
+    let currentView = 'dashboard';
+
+    // Check for saved token on load
+    const savedToken = localStorage.getItem('token');
+    if (savedToken) {
+      checkAuth(savedToken);
+    }
+
+    // Login form handler
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('login-email').value;
+      const password = document.getElementById('login-password').value;
+      
+      try {
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        
+        if (!response.ok) throw new Error('Login failed');
+        
+        const data = await response.json();
+        localStorage.setItem('token', data.token);
+        currentUser = data.user;
+        showApp();
+      } catch (error) {
+        alert('Login failed: ' + error.message);
+      }
+    });
+
+    // Check authentication
+    async function checkAuth(token) {
+      try {
+        const response = await fetch('/api/auth/me', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) throw new Error('Invalid token');
+        currentUser = await response.json();
+        localStorage.setItem('token', token);
+        showApp();
+      } catch (error) {
+        localStorage.removeItem('token');
+      }
+    }
+
+    // Show main application
+    function showApp() {
+      document.getElementById('auth-container').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+      updateUserInfo();
+      renderNav();
+      navigateTo('dashboard');
+    }
+
+    // Update user info
+    function updateUserInfo() {
+      document.getElementById('user-name').textContent = currentUser.name;
+      document.getElementById('user-role').textContent = currentUser.role;
+      document.getElementById('user-avatar').textContent = currentUser.name.charAt(0).toUpperCase();
+    }
+
+    // Render navigation based on role
+    function renderNav() {
+      const nav = document.getElementById('nav-menu');
+      const items = [];
+      
+      // Common items
+      items.push({ view: 'dashboard', label: 'Dashboard', icon: '📊' });
+      
+      if (currentUser.role === 'ADMIN') {
+        items.push({ view: 'users', label: 'User Management', icon: '👥' });
+        items.push({ view: 'goals', label: 'Goal Management', icon: '🎯' });
+        items.push({ view: 'periods', label: 'Rating Periods', icon: '📅' });
+      }
+      
+      if (currentUser.role === 'MANAGER' || currentUser.role === 'ADMIN') {
+        items.push({ view: 'team', label: 'My Team', icon: '👨‍👩‍👧' });
+        items.push({ view: 'team-report', label: 'Team Report', icon: '📈' });
+      }
+      
+      if (currentUser.role === 'EMPLOYEE') {
+        items.push({ view: 'my-goals', label: 'My Goals', icon: '🎯' });
+        items.push({ view: 'my-feedback', label: 'AI Feedback', icon: '🤖' });
+        items.push({ view: 'my-recommendations', label: 'Recommendations', icon: '💡' });
+        items.push({ view: 'my-ratings', label: 'My Ratings', icon: '⭐' });
+      }
+      
+      nav.innerHTML = items.map(item => `
+        <li class="nav-item">
+          <a href="#" class="nav-link ${currentView === item.view ? 'active' : ''}" onclick="navigateTo('${item.view}')">
+            <span>${item.icon}</span> ${item.label}
+          </a>
+        </li>
+      `).join('');
+    }
+
+    // Navigation
+    function navigateTo(view) {
+      currentView = view;
+      renderNav();
+      document.querySelectorAll('.nav-link').forEach(link => {
+        link.classList.toggle('active', link.textContent.trim().toLowerCase().includes(view.replace('-', ' ')));
+      });
+      
+      const titles = {
+        'dashboard': 'Dashboard',
+        'users': 'User Management',
+        'goals': 'Goal Management',
+        'periods': 'Rating Periods',
+        'team': 'My Team',
+        'team-report': 'Team Report',
+        'my-goals': 'My Goals',
+        'my-feedback': 'AI Feedback',
+        'my-recommendations': 'Recommendations',
+        'my-ratings': 'My Ratings'
+      };
+      document.getElementById('page-title').textContent = titles[view] || 'Dashboard';
+      renderContent(view);
+    }
+
+    // Render content based on view
+    async function renderContent(view) {
+      const content = document.getElementById('content-area');
+      const token = localStorage.getItem('token');
+      const headers = { 'Authorization': `Bearer ${token}` };
+      
+      switch(view) {
+        case 'dashboard':
+          content.innerHTML = renderDashboard();
+          break;
+          
+        case 'users':
+          if (currentUser.role !== 'ADMIN') return navigateTo('dashboard');
+          const users = await fetch('/api/admin/users', { headers }).then(r => r.json());
+          content.innerHTML = renderUsers(users);
+          break;
+          
+        case 'goals':
+          if (currentUser.role !== 'ADMIN') return navigateTo('dashboard');
+          const goals = await fetch('/api/admin/goals', { headers }).then(r => r.json());
+          content.innerHTML = renderGoals(goals);
+          break;
+          
+        case 'periods':
+          if (currentUser.role !== 'ADMIN') return navigateTo('dashboard');
+          const periods = await fetch('/api/rating-periods', { headers }).then(r => r.json());
+          content.innerHTML = renderPeriods(periods);
+          break;
+          
+        case 'team':
+          if (currentUser.role !== 'MANAGER' && currentUser.role !== 'ADMIN') return navigateTo('dashboard');
+          const team = await fetch('/api/manager/team', { headers }).then(r => r.json());
+          const teamGoals = await fetch('/api/manager/team-goals', { headers }).then(r => r.json());
+          content.innerHTML = renderTeam(team, teamGoals);
+          break;
+          
+        case 'team-report':
+          if (currentUser.role !== 'MANAGER' && currentUser.role !== 'ADMIN') return navigateTo('dashboard');
+          content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+          try {
+            const report = await fetch('/api/manager/team-report/current', { headers }).then(r => r.json());
+            content.innerHTML = renderTeamReport(report);
+          } catch (e) {
+            content.innerHTML = '<div class="empty-state"><p>No team data available yet</p></div>';
+          }
+          break;
+          
+        case 'my-goals':
+          const myGoals = await fetch('/api/employee/goals', { headers }).then(r => r.json());
+          content.innerHTML = renderMyGoals(myGoals, token);
+          break;
+          
+        case 'my-feedback':
+          const feedback = await fetch('/api/employee/feedback', { headers }).then(r => r.json());
+          content.innerHTML = renderFeedback(feedback);
+          break;
+          
+        case 'my-recommendations':
+          const recs = await fetch('/api/employee/recommendations', { headers }).then(r => r.json());
+          content.innerHTML = renderRecommendations(recs);
+          break;
+          
+        case 'my-ratings':
+          const ratings = await fetch('/api/employee/ratings', { headers }).then(r => r.json());
+          content.innerHTML = renderRatings(ratings);
+          break;
+      }
+    }
+
+    // ============ Render Functions ============
+
+    function renderDashboard() {
+      return `
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value">${currentUser.role}</div>
+            <div class="stat-label">Your Role</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">AI-Powered</div>
+            <div class="stat-label">Feedback System</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">Empathy</div>
+            <div class="stat-label">Life Event Adjustments</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Welcome to Performance AI</h3>
+          </div>
+          <p>This is an AI-Powered Performance Ratings system with the following features:</p>
+          <ul style="margin-top: 10px; margin-left: 20px;">
+            <li><strong>AI Feedback Generation</strong> - Automatically generates personalized feedback based on your progress</li>
+            <li><strong>Empathy Adjustments</strong> - Fair rating adjustments for life events (maternity, illness, etc.)</li>
+            <li><strong>AI Recommendations</strong> - Personalized growth and career development suggestions</li>
+            <li><strong>Team Insights</strong> - Managers get AI-powered team performance reports</li>
+          </ul>
+        </div>
+      `;
+    }
+
+    function renderUsers(users) {
+      return `
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">All Users</h3>
+            <button class="btn btn-primary btn-sm" onclick="showAddUserModal()">+ Add User</button>
+          </div>
+          <div class="table-container">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Department</th>
+                  <th>Position</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${users.map(u => `
+                  <tr>
+                    <td>${u.name}</td>
+                    <td>${u.email}</td>
+                    <td><span class="badge badge-${u.role === 'ADMIN' ? 'danger' : u.role === 'MANAGER' ? 'warning' : 'info'}">${u.role}</span></td>
+                    <td>${u.department || '-'}</td>
+                    <td>${u.position || '-'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderGoals(goals) {
+      return `
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Company Goals</h3>
+            <button class="btn btn-primary btn-sm" onclick="showAddGoalModal()">+ Add Goal</button>
+          </div>
+          ${goals.length === 0 ? '<div class="empty-state"><p>No goals created yet</p></div>' : `
+            <div class="table-container">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Description</th>
+                    <th>Success Criteria</th>
+                    <th>Created By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${goals.map(g => `
+                    <tr>
+                      <td><strong>${g.title}</strong></td>
+                      <td>${g.description || '-'}</td>
+                      <td>${g.success_criteria || '-'}</td>
+                      <td>${g.created_by_name || '-'}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+    }
+
+    function renderPeriods(periods) {
+      return `
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Rating Periods</h3>
+            <button class="btn btn-primary btn-sm" onclick="showAddPeriodModal()">+ Add Period</button>
+          </div>
+          <div class="table-container">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Start Date</th>
+                  <th>End Date</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${periods.map(p => `
+                  <tr>
+                    <td><strong>${p.name}</strong></td>
+                    <td>${p.start_date}</td>
+                    <td>${p.end_date}</td>
+                    <td><span class="badge ${p.is_active ? 'badge-success' : 'badge-info'}">${p.is_active ? 'Active' : 'Inactive'}</span></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderTeam(team, teamGoals) {
+      return `
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value">${team.length}</div>
+            <div class="stat-label">Team Members</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${teamGoals.length}</div>
+            <div class="stat-label">Active Goals</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Team Members</h3>
+          </div>
+          ${team.length === 0 ? '<div class="empty-state"><p>No team members yet</p></div>' : `
+            <div class="table-container">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Department</th>
+                    <th>Position</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${team.map(m => `
+                    <tr>
+                      <td>${m.name}</td>
+                      <td>${m.email}</td>
+                      <td>${m.department || '-'}</td>
+                      <td>${m.position || '-'}</td>
+                      <td>
+                        <button class="btn btn-sm btn-secondary" onclick="showAssignGoalModal('${m.id}', '${m.name}')">Assign Goal</button>
+                        <button class="btn btn-sm btn-secondary" onclick="showLifeEventModal('${m.id}', '${m.name}')">Life Event</button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Team Goals Progress</h3>
+          </div>
+          ${teamGoals.length === 0 ? '<div class="empty-state"><p>No goals assigned yet</p></div>' : `
+            ${teamGoals.map(tg => `
+              <div style="margin-bottom: 15px; padding: 15px; background: var(--background); border-radius: 8px;">
+                <div class="flex justify-between items-center mb-2">
+                  <strong>${tg.employee_name} - ${tg.goal_title}</strong>
+                  <span class="badge ${(tg.latest_completion || 0) >= 70 ? 'badge-success' : (tg.latest_completion || 0) >= 40 ? 'badge-warning' : 'badge-danger'}">
+                    ${tg.latest_completion || 0}%
+                  </span>
+                </div>
+                <div class="progress-bar">
+                  <div class="progress-fill ${(tg.latest_completion || 0) >= 70 ? 'success' : (tg.latest_completion || 0) >= 40 ? 'warning' : 'danger'}" style="width: ${tg.latest_completion || 0}%"></div>
+                </div>
+              </div>
+            `).join('')}
+          `}
+        </div>
+      `;
+    }
+
+    function renderTeamReport(report) {
+      if (!report) return '<div class="empty-state"><p>No report available</p></div>';
+      return `
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">AI-Generated Team Report</h3>
+            <button class="btn btn-sm btn-secondary" onclick="navigateTo('team-report')">↻ Regenerate</button>
+          </div>
+          <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+            <h4 style="margin-bottom: 10px;">📊 Summary</h4>
+            <p>${report.summary || 'No summary available'}</p>
+          </div>
+          
+          <h4 style="margin-bottom: 10px;">✅ Team Strengths</h4>
+          <ul style="margin-left: 20px; margin-bottom: 20px;">
+            ${(report.team_strengths || []).map(s => `<li>${s}</li>`).join('')}
+          </ul>
+          
+          <h4 style="margin-bottom: 10px;">🎯 Opportunity Areas</h4>
+          <ul style="margin-left: 20px; margin-bottom: 20px;">
+            ${(report.opportunity_areas || []).map(s => `<li>${s}</li>`).join('')}
+          </ul>
+          
+          <h4 style="margin-bottom: 10px;">📈 Performance Patterns</h4>
+          <ul style="margin-left: 20px; margin-bottom: 20px;">
+            ${(report.patterns || []).map(s => `<li>${s}</li>`).join('')}
+          </ul>
+          
+          <h4 style="margin-bottom: 10px;">💡 Recommendations</h4>
+          ${(report.recommendations || []).map(r => `
+            <div class="recommendation-item">
+              <div class="recommendation-icon">💡</div>
+              <div>
+                <strong>${r.title}</strong>
+                <p style="color: var(--text-secondary); font-size: 14px;">${r.description}</p>
+                <span class="badge badge-${r.priority === 'HIGH' ? 'danger' : r.priority === 'MEDIUM' ? 'warning' : 'info'}">${r.priority}</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function renderMyGoals(goals, token) {
+      return `
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">My Goals</h3>
+          </div>
+          ${goals.length === 0 ? '<div class="empty-state"><p>No goals assigned yet</p></div>' : goals.map(g => `
+            <div style="margin-bottom: 20px; padding: 20px; background: var(--background); border-radius: 12px;">
+              <div class="flex justify-between items-center mb-2">
+                <h4>${g.customized_title || g.title}</h4>
+                <span class="badge badge-${(g.latest_completion || 0) >= 70 ? 'success' : (g.latest_completion || 0) >= 40 ? 'warning' : 'danger'}">
+                  ${g.latest_completion || 0}%
+                </span>
+              </div>
+              <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 10px;">${g.description || g.customized_criteria || ''}</p>
+              <div class="progress-bar mb-2">
+                <div class="progress-fill ${(g.latest_completion || 0) >= 70 ? 'success' : (g.latest_completion || 0) >= 40 ? 'warning' : 'danger'}" style="width: ${g.latest_completion || 0}%"></div>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="showUpdateProgressModal('${g.id}', '${g.customized_title || g.title}')">
+                Update Progress
+              </button>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function renderFeedback(feedback) {
+      if (feedback.length === 0) {
+        return `
+          <div class="card">
+            <div class="empty-state">
+              <h3>No AI Feedback Yet</h3>
+              <p>AI feedback will appear here after you submit progress updates on your goals.</p>
+            </div>
+          </div>
+        `;
+      }
+      
+      // Group feedback by goal
+      const grouped = {};
+      feedback.forEach(f => {
+        if (!grouped[f.goal_title]) grouped[f.goal_title] = [];
+        grouped[f.goal_title].push(f);
+      });
+      
+      return `
+        <div class="card">
+          <h3 class="card-title mb-4">AI-Generated Feedback</h3>
+          ${Object.entries(grouped).map(([goal, items]) => `
+            <div style="margin-bottom: 25px;">
+              <h4 style="margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border);">${goal}</h4>
+              ${items.map(f => `
+                <div class="ai-feedback">
+                  <span class="feedback-type ${f.feedback_type === 'STRENGTH' ? 'strength' : f.feedback_type === 'DEVELOPMENT_AREA' ? 'development' : 'insight'}">
+                    ${f.feedback_type}
+                  </span>
+                  <p style="margin-top: 8px;"><strong>${f.title}:</strong> ${f.ai_generated_text}</p>
+                  <p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
+                    Confidence: ${Math.round(f.confidence_score * 100)}%
+                  </p>
+                </div>
+              `).join('')}
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function renderRecommendations(recs) {
+      if (recs.length === 0) {
+        return `
+          <div class="card">
+            <div class="empty-state">
+              <h3>No Recommendations Yet</h3>
+              <p>AI-powered recommendations will appear here based on your performance.</p>
+            </div>
+          </div>
+        `;
+      }
+      
+      const icons = { 'LEARNING': '📚', 'SKILL_GAP': '🎯', 'CAREER_PATH': '🚀', 'COACHING': '👨‍🏫', 'TEAM_DEVELOPMENT': '👥', 'HIRING': '💼' };
+      
+      return `
+        <div class="card">
+          <h3 class="card-title mb-4">Personalized Recommendations</h3>
+          ${recs.map(r => `
+            <div class="recommendation-item">
+              <div class="recommendation-icon">${icons[r.recommendation_type] || '💡'}</div>
+              <div style="flex: 1;">
+                <div class="flex justify-between items-center">
+                  <strong>${r.title}</strong>
+                  <span class="badge badge-${r.priority === 'HIGH' ? 'danger' : r.priority === 'MEDIUM' ? 'warning' : 'info'}">${r.priority}</span>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 14px; margin-top: 5px;">${r.description}</p>
+                <p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
+                  Type: ${r.recommendation_type} • Confidence: ${Math.round(r.confidence_score * 100)}%
+                </p>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function renderRatings(ratings) {
+      if (ratings.length === 0) {
+        return `
+          <div class="card">
+            <div class="empty-state">
+              <h3>No Ratings Yet</h3>
+              <p>Your performance ratings will appear here after the evaluation period.</p>
+            </div>
+          </div>
+        `;
+      }
+      
+      return `
+        <div class="card">
+          <h3 class="card-title mb-4">My Performance Ratings</h3>
+          ${ratings.map(r => {
+            const score = Math.round(r.final_score * 100);
+            const label = score >= 85 ? 'Exceeds Expectations' : score >= 70 ? 'Meets Expectations' : 'Developing';
+            return `
+              <div style="margin-bottom: 20px; padding: 20px; background: var(--background); border-radius: 12px;">
+                <div class="flex items-center gap-4">
+                  <div class="rating-circle" style="border-color: ${score >= 70 ? 'var(--success)' : 'var(--warning)'}; color: ${score >= 70 ? 'var(--success)' : 'var(--warning)'};">
+                    ${score}%
+                  </div>
+                  <div>
+                    <h4>${r.rating_period}</h4>
+                    <p style="color: var(--text-secondary);">${label}</p>
+                    ${r.adjustment_explanation ? `<p style="font-size: 13px; color: var(--primary); margin-top: 5px;">🤝 ${r.adjustment_explanation}</p>` : ''}
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    // ============ Modal Functions ============
+
+    function showAddUserModal() {
+      document.getElementById('modal-title').textContent = 'Add New User';
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="addUser(event)">
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" name="name" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" name="email" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" name="password" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Role</label>
+            <select name="role" class="form-select" required>
+              <option value="EMPLOYEE">Employee</option>
+              <option value="MANAGER">Manager</option>
+              <option value="ADMIN">Admin</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Department</label>
+            <input type="text" name="department" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Position</label>
+            <input type="text" name="position" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Manager (for Employees/Managers)</label>
+            <select name="managerId" class="form-select">
+              <option value="">No Manager</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Add User</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    async function addUser(e) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        name: form.name.value,
+        email: form.email.value,
+        password: form.password.value,
+        role: form.role.value,
+        department: form.department.value,
+        position: form.position.value,
+        managerId: form.managerId.value || null
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        navigateTo('users');
+      } else {
+        alert('Failed to add user');
+      }
+    }
+
+    function showAddGoalModal() {
+      document.getElementById('modal-title').textContent = 'Add New Goal';
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="addGoal(event)">
+          <div class="form-group">
+            <label class="form-label">Title</label>
+            <input type="text" name="title" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea name="description" class="form-textarea"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Success Criteria</label>
+            <textarea name="successCriteria" class="form-textarea" placeholder="What does success look like?"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Competencies</label>
+            <input type="text" name="competencies" class="form-input" placeholder="e.g., Leadership, Communication">
+          </div>
+          <div class="form-group">
+            <label class="form-label">AI Context</label>
+            <textarea name="contextForAI" class="form-textarea" placeholder="What does excellence look like for this goal?"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Create Goal</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    async function addGoal(e) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        title: form.title.value,
+        description: form.description.value,
+        successCriteria: form.successCriteria.value,
+        competencies: form.competencies.value,
+        contextForAI: form.contextForAI.value
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/admin/goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        navigateTo('goals');
+      } else {
+        alert('Failed to add goal');
+      }
+    }
+
+    function showUpdateProgressModal(goalId, goalTitle) {
+      document.getElementById('modal-title').textContent = `Update Progress - ${goalTitle}`;
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="submitProgress(event, '${goalId}')">
+          <div class="form-group">
+            <label class="form-label">Completion Percentage</label>
+            <input type="number" name="completion_percentage" class="form-input" min="0" max="100" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">What did you accomplish?</label>
+            <textarea name="update_text" class="form-textarea" placeholder="Describe your progress..." required></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Evidence/Links (optional)</label>
+            <input type="text" name="evidence" class="form-input" placeholder="Links to work, documents, etc.">
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Submit Progress</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    async function submitProgress(e, goalId) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        completion_percentage: parseInt(form.completion_percentage.value),
+        update_text: form.update_text.value,
+        evidence: form.evidence.value,
+        time_period: 'Weekly'
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/employee/progress/${goalId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        alert('Progress submitted! AI feedback will be generated shortly.');
+        navigateTo('my-goals');
+      } else {
+        alert('Failed to submit progress');
+      }
+    }
+
+    function closeModal() {
+      document.getElementById('modal-overlay').classList.remove('active');
+    }
+
+    function logout() {
+      localStorage.removeItem('token');
+      currentUser = null;
+      document.getElementById('app').classList.add('hidden');
+      document.getElementById('auth-container').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
