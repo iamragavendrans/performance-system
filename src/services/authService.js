@@ -100,7 +100,13 @@ class AuthService {
    * Get all employees for a manager
    */
   static getTeamMembers(managerId) {
-    return db.all('SELECT * FROM users WHERE manager_id = ?', [managerId]);
+    return db.all(
+      `SELECT u.*, m.name as manager_name 
+       FROM users u 
+       LEFT JOIN users m ON u.manager_id = m.id 
+       WHERE u.manager_id = ?`,
+      [managerId]
+    );
   }
 
   /**

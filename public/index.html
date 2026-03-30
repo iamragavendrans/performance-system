@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI-Powered Performance Ratings</title>
+  <title>Performance Management System</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,8 +11,8 @@
   <div id="auth-container" class="auth-container">
     <div class="auth-card">
       <div class="auth-logo">
-        <h1>Performance AI</h1>
-        <p>AI-Powered Performance Ratings System</p>
+        <h1>Performance System</h1>
+        <p>Performance Management System</p>
       </div>
       <form id="login-form">
         <div class="form-group">
@@ -37,7 +37,7 @@
     <aside class="sidebar">
       <div class="sidebar-logo">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-        Performance AI
+        Performance System
       </div>
       <ul class="nav-menu" id="nav-menu">
         <!-- Dynamic nav items based on role -->
@@ -157,18 +157,22 @@
         items.push({ view: 'users', label: 'User Management', icon: '👥' });
         items.push({ view: 'goals', label: 'Goal Management', icon: '🎯' });
         items.push({ view: 'periods', label: 'Rating Periods', icon: '📅' });
+        items.push({ view: 'groups', label: 'Groups', icon: '👨‍👩‍👧' });
+        items.push({ view: 'team-report', label: 'Team Report', icon: '📈' });
       }
       
-      if (currentUser.role === 'MANAGER' || currentUser.role === 'ADMIN') {
-        items.push({ view: 'team', label: 'My Team', icon: '👨‍👩‍👧' });
+      if (currentUser.role === 'MANAGER') {
+        items.push({ view: 'my-goals', label: 'My Goals', icon: '🎯' });
+        items.push({ view: 'my-ratings', label: 'My Ratings', icon: '⭐' });
+        items.push({ view: 'manager-team', label: 'My Team', icon: '👨‍👩‍👧' });
+        items.push({ view: 'manager-goals', label: 'Goal Management', icon: '🎯' });
         items.push({ view: 'team-report', label: 'Team Report', icon: '📈' });
       }
       
       if (currentUser.role === 'EMPLOYEE') {
         items.push({ view: 'my-goals', label: 'My Goals', icon: '🎯' });
-        items.push({ view: 'my-feedback', label: 'AI Feedback', icon: '🤖' });
-        items.push({ view: 'my-recommendations', label: 'Recommendations', icon: '💡' });
         items.push({ view: 'my-ratings', label: 'My Ratings', icon: '⭐' });
+        items.push({ view: 'life-events', label: 'Life Events', icon: '❤️' });
       }
       
       nav.innerHTML = items.map(item => `
@@ -193,12 +197,13 @@
         'users': 'User Management',
         'goals': 'Goal Management',
         'periods': 'Rating Periods',
-        'team': 'My Team',
+        'groups': 'Groups',
         'team-report': 'Team Report',
+        'manager-team': 'My Team',
+        'manager-goals': 'Goal Management',
         'my-goals': 'My Goals',
-        'my-feedback': 'AI Feedback',
-        'my-recommendations': 'Recommendations',
-        'my-ratings': 'My Ratings'
+        'my-ratings': 'My Ratings',
+        'life-events': 'Life Events'
       };
       document.getElementById('page-title').textContent = titles[view] || 'Dashboard';
       renderContent(view);
@@ -212,9 +217,10 @@
       
       switch(view) {
         case 'dashboard':
-          content.innerHTML = renderDashboard();
+          content.innerHTML = await renderDashboard();
           break;
           
+        // ADMIN VIEWS
         case 'users':
           if (currentUser.role !== 'ADMIN') return navigateTo('dashboard');
           const users = await fetch('/api/admin/users', { headers }).then(r => r.json());
@@ -233,78 +239,240 @@
           content.innerHTML = renderPeriods(periods);
           break;
           
-        case 'team':
-          if (currentUser.role !== 'MANAGER' && currentUser.role !== 'ADMIN') return navigateTo('dashboard');
-          const team = await fetch('/api/manager/team', { headers }).then(r => r.json());
-          const teamGoals = await fetch('/api/manager/team-goals', { headers }).then(r => r.json());
-          content.innerHTML = renderTeam(team, teamGoals);
+        case 'groups':
+          if (currentUser.role !== 'ADMIN') return navigateTo('dashboard');
+          content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+          try {
+            const groups = await fetch('/api/admin/groups', { headers }).then(r => r.json());
+            const allGoals = await fetch('/api/admin/goals', { headers }).then(r => r.json());
+            content.innerHTML = renderGroups(groups, allGoals);
+          } catch (e) {
+            content.innerHTML = '<div class="empty-state"><p>Error loading groups</p></div>';
+          }
           break;
           
         case 'team-report':
           if (currentUser.role !== 'MANAGER' && currentUser.role !== 'ADMIN') return navigateTo('dashboard');
           content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
           try {
-            const report = await fetch('/api/manager/team-report/current', { headers }).then(r => r.json());
-            content.innerHTML = renderTeamReport(report);
+            const managers = await fetch('/api/admin/managers', { headers }).then(r => r.json());
+            const employees = await fetch('/api/admin/employees', { headers }).then(r => r.json());
+            content.innerHTML = renderTeamReportFilters(managers, employees);
           } catch (e) {
-            content.innerHTML = '<div class="empty-state"><p>No team data available yet</p></div>';
+            content.innerHTML = '<div class="empty-state"><p>Error loading filters</p></div>';
           }
           break;
           
+        // MANAGER VIEWS
+        case 'manager-team':
+          if (currentUser.role !== 'MANAGER') return navigateTo('dashboard');
+          const team = await fetch('/api/manager/team', { headers }).then(r => r.json());
+          const teamGoals = await fetch('/api/manager/team-goals', { headers }).then(r => r.json());
+          content.innerHTML = renderManagerTeam(team, teamGoals);
+          break;
+          
+        case 'manager-goals':
+          if (currentUser.role !== 'MANAGER') return navigateTo('dashboard');
+          const teamMembers = await fetch('/api/manager/team', { headers }).then(r => r.json());
+          const teamGoalsList = await fetch('/api/manager/team-goals', { headers }).then(r => r.json());
+          const customGoals = await fetch('/api/manager/custom-goals', { headers }).then(r => r.json());
+          content.innerHTML = renderManagerGoals(teamMembers, teamGoalsList, customGoals);
+          break;
+          
+        // EMPLOYEE VIEWS
         case 'my-goals':
-          const myGoals = await fetch('/api/employee/goals', { headers }).then(r => r.json());
+          const isManager = currentUser.role === 'MANAGER';
+          const goalsEndpoint = isManager ? '/api/manager/my-goals' : '/api/employee/goals';
+          const myGoals = await fetch(goalsEndpoint, { headers }).then(r => r.json());
           content.innerHTML = renderMyGoals(myGoals, token);
           break;
           
-        case 'my-feedback':
-          const feedback = await fetch('/api/employee/feedback', { headers }).then(r => r.json());
-          content.innerHTML = renderFeedback(feedback);
-          break;
-          
-        case 'my-recommendations':
-          const recs = await fetch('/api/employee/recommendations', { headers }).then(r => r.json());
-          content.innerHTML = renderRecommendations(recs);
-          break;
-          
         case 'my-ratings':
-          const ratings = await fetch('/api/employee/ratings', { headers }).then(r => r.json());
-          content.innerHTML = renderRatings(ratings);
+          const ratingsEndpoint = isManager ? '/api/manager/my-ratings' : '/api/employee/ratings';
+          const ratings = await fetch(ratingsEndpoint, { headers }).then(r => r.json());
+          content.innerHTML = renderMyRatings(ratings);
+          break;
+          
+        case 'life-events':
+          const lifeEvents = await fetch('/api/employee/life-events', { headers }).then(r => r.json());
+          const pendingApprovals = currentUser.role === 'MANAGER' ? await fetch('/api/manager/pending-life-events', { headers }).then(r => r.json()) : [];
+          content.innerHTML = renderLifeEvents(lifeEvents, pendingApprovals);
           break;
       }
     }
 
-    // ============ Render Functions ============
+    // ============ DASHBOARD FUNCTIONS ============
 
-    function renderDashboard() {
+    async function renderDashboard() {
+      const token = localStorage.getItem('token');
+      const headers = { 'Authorization': `Bearer ${token}` };
+      
+      if (currentUser.role === 'ADMIN') {
+        // Organization insights
+        const stats = await fetch('/api/admin/stats', { headers }).then(r => r.json());
+        return renderAdminDashboard(stats);
+      } else if (currentUser.role === 'MANAGER') {
+        // Team insights
+        const stats = await fetch('/api/manager/stats', { headers }).then(r => r.json());
+        return renderManagerDashboard(stats);
+      } else {
+        // Employee insights
+        const stats = await fetch('/api/employee/stats', { headers }).then(r => r.json());
+        return renderEmployeeDashboard(stats);
+      }
+    }
+
+    function renderAdminDashboard(stats) {
       return `
         <div class="stats-grid">
           <div class="stat-card">
-            <div class="stat-value">${currentUser.role}</div>
-            <div class="stat-label">Your Role</div>
+            <div class="stat-value">${stats.totalEmployees || 0}</div>
+            <div class="stat-label">Total Employees</div>
           </div>
           <div class="stat-card">
-            <div class="stat-value">AI-Powered</div>
-            <div class="stat-label">Feedback System</div>
+            <div class="stat-value">${stats.totalManagers || 0}</div>
+            <div class="stat-label">Managers</div>
           </div>
           <div class="stat-card">
-            <div class="stat-value">Empathy</div>
-            <div class="stat-label">Life Event Adjustments</div>
+            <div class="stat-value">${stats.activeGoals || 0}</div>
+            <div class="stat-label">Active Goals</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.completedGoals || 0}</div>
+            <div class="stat-label">Completed Goals</div>
           </div>
         </div>
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">Welcome to Performance AI</h3>
+            <h3 class="card-title">Organization Insights</h3>
           </div>
-          <p>This is an AI-Powered Performance Ratings system with the following features:</p>
-          <ul style="margin-top: 10px; margin-left: 20px;">
-            <li><strong>AI Feedback Generation</strong> - Automatically generates personalized feedback based on your progress</li>
-            <li><strong>Empathy Adjustments</strong> - Fair rating adjustments for life events (maternity, illness, etc.)</li>
-            <li><strong>AI Recommendations</strong> - Personalized growth and career development suggestions</li>
-            <li><strong>Team Insights</strong> - Managers get AI-powered team performance reports</li>
-          </ul>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+            <div style="padding: 15px; background: var(--background); border-radius: 8px;">
+              <h4 style="margin-bottom: 10px;">📈 Goal Completion Rate</h4>
+              <p style="font-size: 24px; font-weight: bold; color: var(--primary);">${stats.completionRate || 0}%</p>
+              <p style="font-size: 13px; color: var(--text-secondary);">Across all employees</p>
+            </div>
+            <div style="padding: 15px; background: var(--background); border-radius: 8px;">
+              <h4 style="margin-bottom: 10px;">🎯 Top Performing Department</h4>
+              <p style="font-size: 18px; font-weight: bold; color: var(--success);">${stats.topDepartment || 'N/A'}</p>
+              <p style="font-size: 13px; color: var(--text-secondary);">Highest completion rate</p>
+            </div>
+            <div style="padding: 15px; background: var(--background); border-radius: 8px;">
+              <h4 style="margin-bottom: 10px;">⚠️ Needs Attention</h4>
+              <p style="font-size: 24px; font-weight: bold; color: var(--warning);">${stats.needsAttention || 0}</p>
+              <p style="font-size: 13px; color: var(--text-secondary);">Employees below 40%</p>
+            </div>
+            <div style="padding: 15px; background: var(--background); border-radius: 8px;">
+              <h4 style="margin-bottom: 10px;">⭐ Active Rating Period</h4>
+              <p style="font-size: 18px; font-weight: bold; color: var(--primary);">${stats.activePeriod || 'None'}</p>
+              <p style="font-size: 13px; color: var(--text-secondary);">Currently in progress</p>
+            </div>
+          </div>
         </div>
       `;
     }
+
+    function renderManagerDashboard(stats) {
+      return `
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value">${stats.teamMembers || 0}</div>
+            <div class="stat-label">Team Members</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.activeGoals || 0}</div>
+            <div class="stat-label">Active Goals</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.completedGoals || 0}</div>
+            <div class="stat-label">Completed Goals</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.pendingApprovals || 0}</div>
+            <div class="stat-label">Pending Approvals</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Team Insights</h3>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+            <div style="padding: 15px; background: var(--background); border-radius: 8px;">
+              <h4 style="margin-bottom: 10px;">📈 Team Completion Rate</h4>
+              <p style="font-size: 24px; font-weight: bold; color: var(--primary);">${stats.completionRate || 0}%</p>
+              <p style="font-size: 13px; color: var(--text-secondary);">Average across team</p>
+            </div>
+            <div style="padding: 15px; background: var(--background); border-radius: 8px;">
+              <h4 style="margin-bottom: 10px;">🎯 Goals On Track</h4>
+              <p style="font-size: 24px; font-weight: bold; color: var(--success);">${stats.onTrack || 0}</p>
+              <p style="font-size: 13px; color: var(--text-secondary);">70% or more complete</p>
+            </div>
+            <div style="padding: 15px; background: var(--background); border-radius: 8px;">
+              <h4 style="margin-bottom: 10px;">⚠️ Needs Improvement</h4>
+              <p style="font-size: 24px; font-weight: bold; color: var(--warning);">${stats.needsImprovement || 0}</p>
+              <p style="font-size: 13px; color: var(--text-secondary);">Below 40% complete</p>
+            </div>
+            <div style="padding: 15px; background: var(--background); border-radius: 8px;">
+              <h4 style="margin-bottom: 10px;">✅ Completed This Period</h4>
+              <p style="font-size: 24px; font-weight: bold; color: var(--success);">${stats.completedThisPeriod || 0}</p>
+              <p style="font-size: 13px; color: var(--text-secondary);">Goals marked complete</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderEmployeeDashboard(stats) {
+      return `
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value">${stats.activeGoals || 0}</div>
+            <div class="stat-label">Active Goals</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.completedGoals || 0}</div>
+            <div class="stat-label">Completed Goals</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.avgCompletion || 0}%</div>
+            <div class="stat-label">Avg. Completion</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${stats.pendingApprovals || 0}</div>
+            <div class="stat-label">Pending Approvals</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">My Performance Insights</h3>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+            <div style="padding: 15px; background: var(--background); border-radius: 8px;">
+              <h4 style="margin-bottom: 10px;">🎯 Focus Priority</h4>
+              <p style="font-size: 16px; font-weight: bold; color: var(--primary);">${stats.focusPriority || 'N/A'}</p>
+              <p style="font-size: 13px; color: var(--text-secondary);">Based on goal weightage</p>
+            </div>
+            <div style="padding: 15px; background: var(--background); border-radius: 8px;">
+              <h4 style="margin-bottom: 10px;">⚠️ Needs Attention</h4>
+              <p style="font-size: 16px; font-weight: bold; color: var(--warning);">${stats.needsAttention || 0} goals</p>
+              <p style="font-size: 13px; color: var(--text-secondary);">Below 40% completion</p>
+            </div>
+            <div style="padding: 15px; background: var(--background); border-radius: 8px;">
+              <h4 style="margin-bottom: 10px;">🌟 Going Well</h4>
+              <p style="font-size: 16px; font-weight: bold; color: var(--success);">${stats.goingWell || 0} goals</p>
+              <p style="font-size: 13px; color: var(--text-secondary);">70% or more complete</p>
+            </div>
+            <div style="padding: 15px; background: var(--background); border-radius: 8px;">
+              <h4 style="margin-bottom: 10px;">📊 Last Rating</h4>
+              <p style="font-size: 16px; font-weight: bold; color: var(--primary);">${stats.lastRating || 'N/A'}</p>
+              <p style="font-size: 13px; color: var(--text-secondary);">From last period</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ============ ADMIN RENDER FUNCTIONS ============
 
     function renderUsers(users) {
       return `
@@ -320,8 +488,10 @@
                   <th>Name</th>
                   <th>Email</th>
                   <th>Role</th>
+                  <th>Manager</th>
                   <th>Department</th>
                   <th>Position</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -330,8 +500,13 @@
                     <td>${u.name}</td>
                     <td>${u.email}</td>
                     <td><span class="badge badge-${u.role === 'ADMIN' ? 'danger' : u.role === 'MANAGER' ? 'warning' : 'info'}">${u.role}</span></td>
+                    <td>${u.manager_name || '-'}</td>
                     <td>${u.department || '-'}</td>
                     <td>${u.position || '-'}</td>
+                    <td>
+                      <button class="btn btn-sm btn-secondary" onclick="showEditUserModal('${u.id}', '${u.name}', '${u.email}', '${u.role}', '${u.manager_id || ''}', '${u.department || ''}', '${u.position || ''}')">Edit</button>
+                      ${u.id !== currentUser.id ? `<button class="btn btn-sm btn-danger" onclick="deleteUser('${u.id}')">Delete</button>` : ''}
+                    </td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -356,7 +531,8 @@
                     <th>Title</th>
                     <th>Description</th>
                     <th>Success Criteria</th>
-                    <th>Created By</th>
+                    <th>Competencies</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -365,7 +541,11 @@
                       <td><strong>${g.title}</strong></td>
                       <td>${g.description || '-'}</td>
                       <td>${g.success_criteria || '-'}</td>
-                      <td>${g.created_by_name || '-'}</td>
+                      <td>${g.competencies || '-'}</td>
+                      <td>
+                        <button class="btn btn-sm btn-secondary" onclick="showEditGoalModal('${g.id}', '${g.title}', '${g.description || ''}', '${g.success_criteria || ''}', '${g.competencies || ''}')">Edit</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteGoal('${g.id}')">Delete</button>
+                      </td>
                     </tr>
                   `).join('')}
                 </tbody>
@@ -391,6 +571,7 @@
                   <th>Start Date</th>
                   <th>End Date</th>
                   <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -400,6 +581,10 @@
                     <td>${p.start_date}</td>
                     <td>${p.end_date}</td>
                     <td><span class="badge ${p.is_active ? 'badge-success' : 'badge-info'}">${p.is_active ? 'Active' : 'Inactive'}</span></td>
+                    <td>
+                      <button class="btn btn-sm btn-secondary" onclick="showEditPeriodModal('${p.id}', '${p.name}', '${p.start_date}', '${p.end_date}', ${p.is_active})">Edit</button>
+                      <button class="btn btn-sm btn-danger" onclick="deletePeriod('${p.id}')">Delete</button>
+                    </td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -409,7 +594,159 @@
       `;
     }
 
-    function renderTeam(team, teamGoals) {
+    function renderGroups(groups, allGoals) {
+      return `
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Groups (Role-Based Goal Mapping)</h3>
+            <button class="btn btn-primary btn-sm" onclick="showAddGroupModal()">+ Add Group</button>
+          </div>
+          <p style="margin-bottom: 20px; color: var(--text-secondary);">
+            Define groups based on roles (e.g., QA, Dev, etc.) and map common goals to them. 
+            Common goals like bug reporting, test execution, automation scripting for QA, 
+            development of new features, bug fix, and deployment for Dev will be automatically assigned.
+          </p>
+          ${groups.length === 0 ? '<div class="empty-state"><p>No groups created yet</p></div>' : groups.map(group => `
+            <div style="margin-bottom: 20px; padding: 20px; background: var(--background); border-radius: 12px;">
+              <div class="flex justify-between items-center mb-3">
+                <h4>${group.name}</h4>
+                <div>
+                  <button class="btn btn-sm btn-secondary" onclick="showEditGroupModal('${group.id}', '${group.name}', '${group.description || ''}')">Edit</button>
+                  <button class="btn btn-sm btn-danger" onclick="deleteGroup('${group.id}')">Delete</button>
+                </div>
+              </div>
+              <p style="color: var(--text-secondary); margin-bottom: 15px;">${group.description || 'No description'}</p>
+              <div>
+                <strong>Mapped Goals:</strong>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+                  ${(group.goals || []).map(g => `
+                    <span class="badge badge-info">${g.title}</span>
+                  `).join('') || '<span style="color: var(--text-secondary);">No goals mapped</span>'}
+                </div>
+                <button class="btn btn-sm btn-primary" style="margin-top: 10px;" onclick="showMapGoalsModal('${group.id}', '${group.name}')">Map Goals</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function renderTeamReportFilters(managers, employees) {
+      return `
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Team Report</h3>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Manager</label>
+              <select id="report-manager" class="form-select" onchange="loadTeamReport()">
+                <option value="">All Managers</option>
+                ${managers.map(m => `<option value="${m.id}">${m.name}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Employee</label>
+              <select id="report-employee" class="form-select" onchange="loadTeamReport()">
+                <option value="">All Employees</option>
+                ${employees.map(e => `<option value="${e.id}">${e.name}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Rating Period</label>
+              <select id="report-period" class="form-select" onchange="loadTeamReport()">
+                <option value="">All Periods</option>
+              </select>
+            </div>
+          </div>
+          <div id="team-report-content">
+            <div class="empty-state"><p>Select filters and click Generate Report</p></div>
+          </div>
+          <button class="btn btn-primary" onclick="loadTeamReport()">Generate Report</button>
+        </div>
+      `;
+    }
+
+    async function loadTeamReport() {
+      const token = localStorage.getItem('token');
+      const managerId = document.getElementById('report-manager')?.value || '';
+      const employeeId = document.getElementById('report-employee')?.value || '';
+      const periodId = document.getElementById('report-period')?.value || '';
+      
+      const params = new URLSearchParams();
+      if (managerId) params.append('managerId', managerId);
+      if (employeeId) params.append('employeeId', employeeId);
+      if (periodId) params.append('periodId', periodId);
+      
+      const content = document.getElementById('team-report-content');
+      content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+      
+      try {
+        const report = await fetch(`/api/reports/team?${params}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json());
+        
+        content.innerHTML = renderTeamReportData(report);
+      } catch (e) {
+        content.innerHTML = '<div class="empty-state"><p>Error loading report</p></div>';
+      }
+    }
+
+    function renderTeamReportData(report) {
+      if (!report || !report.summary) return '<div class="empty-state"><p>No data available for selected filters</p></div>';
+      
+      return `
+        <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+          <h4 style="margin-bottom: 10px;">📊 Organization Summary</h4>
+          <p>${report.summary.employeeCount || 0} employees across ${report.summary.managerCount || 0} managers</p>
+          <p>Average completion: ${report.summary.avgCompletion || 0}%</p>
+        </div>
+        
+        ${report.byManager && report.byManager.length > 0 ? `
+          <h4 style="margin-bottom: 15px;">By Manager</h4>
+          ${report.byManager.map(m => `
+            <div style="margin-bottom: 20px; padding: 15px; background: var(--background); border-radius: 8px; cursor: pointer;" onclick="toggleSection('manager-${m.id}')">
+              <div class="flex justify-between items-center">
+                <strong>${m.name} (${m.employeeCount} employees)</strong>
+                <span class="badge ${m.avgCompletion >= 70 ? 'badge-success' : m.avgCompletion >= 40 ? 'badge-warning' : 'badge-danger'}">
+                  ${m.avgCompletion}% avg
+                </span>
+              </div>
+              <div id="manager-${m.id}" style="display: none; margin-top: 15px;">
+                ${m.employees.map(e => `
+                  <div style="padding: 10px; margin-top: 10px; border-left: 3px solid var(--primary);">
+                    <div class="flex justify-between items-center">
+                      <span>${e.name}</span>
+                      <span class="badge ${e.completion >= 70 ? 'badge-success' : e.completion >= 40 ? 'badge-warning' : 'badge-danger'}">
+                        ${e.completion}%
+                      </span>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `).join('')}
+        ` : ''}
+      `;
+    }
+
+    function toggleSection(id) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+
+    // ============ MANAGER RENDER FUNCTIONS ============
+
+    function renderManagerTeam(team, teamGoals) {
+      // Create a heatmap: rows = employees, cols = goals
+      const goalMap = {};
+      teamGoals.forEach(tg => {
+        if (!goalMap[tg.employee_id]) goalMap[tg.employee_id] = {};
+        goalMap[tg.employee_id][tg.goal_id] = tg;
+      });
+      
+      const uniqueGoals = [...new Map(teamGoals.map(g => [g.goal_id, {id: g.goal_id, title: g.goal_title}])).values()];
+      
       return `
         <div class="stats-grid">
           <div class="stat-card">
@@ -420,33 +757,52 @@
             <div class="stat-value">${teamGoals.length}</div>
             <div class="stat-label">Active Goals</div>
           </div>
+          <div class="stat-card">
+            <div class="stat-value">${teamGoals.filter(g => (g.latest_completion || 0) >= 70).length}</div>
+            <div class="stat-label">On Track</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${teamGoals.filter(g => (g.latest_completion || 0) < 40).length}</div>
+            <div class="stat-label">Needs Attention</div>
+          </div>
         </div>
+        
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">Team Members</h3>
+            <h3 class="card-title">Team Goals Heatmap</h3>
+            <button class="btn btn-sm btn-secondary" onclick="toggleGoalDetails()">Toggle Goal Details</button>
           </div>
           ${team.length === 0 ? '<div class="empty-state"><p>No team members yet</p></div>' : `
-            <div class="table-container">
-              <table class="table">
+            <div style="overflow-x: auto;">
+              <table class="table" style="min-width: 600px;">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Email</th>
+                    <th>Employee</th>
                     <th>Department</th>
                     <th>Position</th>
+                    ${uniqueGoals.map(g => `<th class="goal-header" data-goal-id="${g.id}" style="writing-mode: vertical-rl; transform: rotate(180deg);">${g.title.substring(0, 15)}...</th>`).join('')}
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   ${team.map(m => `
                     <tr>
-                      <td>${m.name}</td>
-                      <td>${m.email}</td>
+                      <td><strong>${m.name}</strong></td>
                       <td>${m.department || '-'}</td>
                       <td>${m.position || '-'}</td>
+                      ${uniqueGoals.map(g => {
+                        const goalData = goalMap[m.id]?.[g.id];
+                        const completion = goalData?.latest_completion || 0;
+                        const colorClass = completion >= 70 ? 'success' : completion >= 40 ? 'warning' : 'danger';
+                        return `<td style="text-align: center;">
+                          <span class="heatmap-cell ${colorClass}" title="${goalData?.goal_title || 'No goal'}: ${completion}%">
+                            ${goalData ? completion + '%' : '-'}
+                          </span>
+                        </td>`;
+                      }).join('')}
                       <td>
-                        <button class="btn btn-sm btn-secondary" onclick="showAssignGoalModal('${m.id}', '${m.name}')">Assign Goal</button>
-                        <button class="btn btn-sm btn-secondary" onclick="showLifeEventModal('${m.id}', '${m.name}')">Life Event</button>
+                        <button class="btn btn-sm btn-secondary" onclick="showAssignGoalModal('${m.id}', '${m.name}')">Goals</button>
+                        <button class="btn btn-sm btn-secondary" onclick="showLinkProjectModal('${m.id}', '${m.name}')">Project</button>
                       </td>
                     </tr>
                   `).join('')}
@@ -455,15 +811,19 @@
             </div>
           `}
         </div>
+        
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">Team Goals Progress</h3>
+            <h3 class="card-title">Team Goals Progress Details</h3>
           </div>
           ${teamGoals.length === 0 ? '<div class="empty-state"><p>No goals assigned yet</p></div>' : `
             ${teamGoals.map(tg => `
               <div style="margin-bottom: 15px; padding: 15px; background: var(--background); border-radius: 8px;">
                 <div class="flex justify-between items-center mb-2">
-                  <strong>${tg.employee_name} - ${tg.goal_title}</strong>
+                  <div>
+                    <strong>${tg.employee_name}</strong>
+                    <span style="color: var(--text-secondary);"> - ${tg.goal_title}</span>
+                  </div>
                   <span class="badge ${(tg.latest_completion || 0) >= 70 ? 'badge-success' : (tg.latest_completion || 0) >= 40 ? 'badge-warning' : 'badge-danger'}">
                     ${tg.latest_completion || 0}%
                   </span>
@@ -475,158 +835,214 @@
             `).join('')}
           `}
         </div>
-      `;
-    }
-
-    function renderTeamReport(report) {
-      if (!report) return '<div class="empty-state"><p>No report available</p></div>';
-      return `
+        
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">AI-Generated Team Report</h3>
-            <button class="btn btn-sm btn-secondary" onclick="navigateTo('team-report')">↻ Regenerate</button>
+            <h3 class="card-title">Add/Remove Team Members</h3>
+            <button class="btn btn-primary btn-sm" onclick="showAddTeamMemberModal()">+ Add Member</button>
           </div>
-          <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
-            <h4 style="margin-bottom: 10px;">📊 Summary</h4>
-            <p>${report.summary || 'No summary available'}</p>
+          <p style="color: var(--text-secondary); margin-bottom: 15px;">
+            Note: Adding members here requires admin approval. You can link/unlink employees to projects.
+          </p>
+          <div class="table-container">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${team.map(m => `
+                  <tr>
+                    <td>${m.name}</td>
+                    <td>${m.email}</td>
+                    <td><span class="badge badge-success">Active</span></td>
+                    <td>
+                      <button class="btn btn-sm btn-danger" onclick="removeTeamMember('${m.id}')">Remove</button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
           </div>
-          
-          <h4 style="margin-bottom: 10px;">✅ Team Strengths</h4>
-          <ul style="margin-left: 20px; margin-bottom: 20px;">
-            ${(report.team_strengths || []).map(s => `<li>${s}</li>`).join('')}
-          </ul>
-          
-          <h4 style="margin-bottom: 10px;">🎯 Opportunity Areas</h4>
-          <ul style="margin-left: 20px; margin-bottom: 20px;">
-            ${(report.opportunity_areas || []).map(s => `<li>${s}</li>`).join('')}
-          </ul>
-          
-          <h4 style="margin-bottom: 10px;">📈 Performance Patterns</h4>
-          <ul style="margin-left: 20px; margin-bottom: 20px;">
-            ${(report.patterns || []).map(s => `<li>${s}</li>`).join('')}
-          </ul>
-          
-          <h4 style="margin-bottom: 10px;">💡 Recommendations</h4>
-          ${(report.recommendations || []).map(r => `
-            <div class="recommendation-item">
-              <div class="recommendation-icon">💡</div>
-              <div>
-                <strong>${r.title}</strong>
-                <p style="color: var(--text-secondary); font-size: 14px;">${r.description}</p>
-                <span class="badge badge-${r.priority === 'HIGH' ? 'danger' : r.priority === 'MEDIUM' ? 'warning' : 'info'}">${r.priority}</span>
-              </div>
-            </div>
-          `).join('')}
         </div>
       `;
     }
 
+    function renderManagerGoals(teamMembers, teamGoalsList, customGoals) {
+      // Get unique goals across all team members
+      const uniqueGoalMap = new Map();
+      teamGoalsList.forEach(tg => {
+        if (!uniqueGoalMap.has(tg.goal_id)) {
+          uniqueGoalMap.set(tg.goal_id, { id: tg.goal_id, title: tg.goal_title, employees: [] });
+        }
+        uniqueGoalMap.get(tg.goal_id).employees.push(tg.employee_name);
+      });
+      
+      const uniqueGoals = Array.from(uniqueGoalMap.values());
+      
+      return `
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Team Goals (${uniqueGoals.length} Unique Goals)</h3>
+            <button class="btn btn-primary btn-sm" onclick="showAddCustomGoalModal()">+ Add Custom Goal</button>
+          </div>
+          <p style="color: var(--text-secondary); margin-bottom: 15px;">
+            Shows all unique goals across your team members. If employee X has 3 goals and Y has 2 goals with 2 common goals, total unique goals = 3.
+          </p>
+          ${uniqueGoals.length === 0 ? '<div class="empty-state"><p>No goals assigned to team yet</p></div>' : `
+            <div class="table-container">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Goal</th>
+                    <th>Assigned To</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${uniqueGoals.map(g => `
+                    <tr>
+                      <td><strong>${g.title}</strong></td>
+                      <td>${g.employees.join(', ')}</td>
+                      <td>
+                        <button class="btn btn-sm btn-secondary" onclick="showRemoveCustomGoalModal('${g.id}', '${g.title}')">Remove from Team</button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+        
+        ${customGoals && customGoals.length > 0 ? `
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Team/Client Specific Custom Goals</h3>
+            </div>
+            ${customGoals.map(cg => `
+              <div style="margin-bottom: 15px; padding: 15px; background: var(--background); border-radius: 8px;">
+                <div class="flex justify-between items-center">
+                  <strong>${cg.title}</strong>
+                  <button class="btn btn-sm btn-danger" onclick="deleteCustomGoal('${cg.id}')">Delete</button>
+                </div>
+                <p style="color: var(--text-secondary); margin-top: 5px;">${cg.description || ''}</p>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      `;
+    }
+
+    // ============ EMPLOYEE RENDER FUNCTIONS ============
+
     function renderMyGoals(goals, token) {
+      // Sort: needs attention first (below 40%), then going well (70%+), then completed
+      const needsAttention = goals.filter(g => (g.latest_completion || 0) < 40 && (g.latest_completion || 0) < 100);
+      const goingWell = goals.filter(g => (g.latest_completion || 0) >= 40 && (g.latest_completion || 0) < 100 && (g.latest_completion || 0) < 70);
+      const onTrack = goals.filter(g => (g.latest_completion || 0) >= 70 && (g.latest_completion || 0) < 100);
+      const completed = goals.filter(g => (g.latest_completion || 0) >= 100 || g.status === 'COMPLETED');
+      
       return `
         <div class="card">
           <div class="card-header">
             <h3 class="card-title">My Goals</h3>
           </div>
-          ${goals.length === 0 ? '<div class="empty-state"><p>No goals assigned yet</p></div>' : goals.map(g => `
-            <div style="margin-bottom: 20px; padding: 20px; background: var(--background); border-radius: 12px;">
-              <div class="flex justify-between items-center mb-2">
-                <h4>${g.customized_title || g.title}</h4>
-                <span class="badge badge-${(g.latest_completion || 0) >= 70 ? 'success' : (g.latest_completion || 0) >= 40 ? 'warning' : 'danger'}">
-                  ${g.latest_completion || 0}%
-                </span>
+          
+          ${goals.length === 0 ? '<div class="empty-state"><p>No goals assigned yet</p></div>' : `
+            <!-- Needs Attention Section -->
+            ${needsAttention.length > 0 ? `
+              <div style="margin-bottom: 25px;">
+                <h4 style="margin-bottom: 15px; color: var(--warning);">⚠️ Needs Attention (${needsAttention.length})</h4>
+                ${needsAttention.map(g => renderGoalCard(g, token)).join('')}
               </div>
-              <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 10px;">${g.description || g.customized_criteria || ''}</p>
-              <div class="progress-bar mb-2">
-                <div class="progress-fill ${(g.latest_completion || 0) >= 70 ? 'success' : (g.latest_completion || 0) >= 40 ? 'warning' : 'danger'}" style="width: ${g.latest_completion || 0}%"></div>
+            ` : ''}
+            
+            <!-- On Track Section -->
+            ${onTrack.length > 0 ? `
+              <div style="margin-bottom: 25px;">
+                <h4 style="margin-bottom: 15px; color: var(--success);">🌟 On Track (${onTrack.length})</h4>
+                ${onTrack.map(g => renderGoalCard(g, token)).join('')}
               </div>
-              <button class="btn btn-primary btn-sm" onclick="showUpdateProgressModal('${g.id}', '${g.customized_title || g.title}')">
-                Update Progress
+            ` : ''}
+            
+            <!-- Going Well Section -->
+            ${goingWell.length > 0 ? `
+              <div style="margin-bottom: 25px;">
+                <h4 style="margin-bottom: 15px; color: var(--primary);">📈 Going Well (${goingWell.length})</h4>
+                ${goingWell.map(g => renderGoalCard(g, token)).join('')}
+              </div>
+            ` : ''}
+            
+            <!-- Completed Section -->
+            ${completed.length > 0 ? `
+              <div style="margin-bottom: 25px;">
+                <h4 style="margin-bottom: 15px; color: var(--text-secondary);">✅ Completed (${completed.length})</h4>
+                ${completed.map(g => renderGoalCard(g, token)).join('')}
+              </div>
+            ` : ''}
+          `}
+        </div>
+      `;
+    }
+
+    function renderGoalCard(g, token) {
+      const completion = g.latest_completion || 0;
+      const statusClass = completion >= 70 ? 'success' : completion >= 40 ? 'warning' : 'danger';
+      const isCustom = g.is_custom === 1 || g.is_custom === true;
+      const needsWeightageApproval = g.weightage_pending_approval === 1 || g.weightage_pending_approval === true;
+      
+      return `
+        <div style="margin-bottom: 20px; padding: 20px; background: var(--background); border-radius: 12px; border-left: 4px solid var(--${statusClass});">
+          <div class="flex justify-between items-center mb-2">
+            <div>
+              <h4>
+                ${g.customized_title || g.title}
+                ${isCustom ? '<span class="badge badge-info" style="margin-left: 8px;">Custom</span>' : ''}
+                ${needsWeightageApproval ? '<span class="badge badge-warning" style="margin-left: 8px;">Pending Approval</span>' : ''}
+              </h4>
+              <p style="color: var(--text-secondary); font-size: 14px; margin-top: 5px;">${g.description || g.customized_criteria || ''}</p>
+              ${g.weightage ? `<p style="font-size: 13px; margin-top: 5px;"><strong>Weightage:</strong> ${g.weightage}%</p>` : ''}
+            </div>
+            <span class="badge badge-${statusClass}">${completion}%</span>
+          </div>
+          
+          <div class="progress-bar mb-3">
+            <div class="progress-fill ${statusClass}" style="width: ${Math.min(completion, 100)}%"></div>
+          </div>
+          
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="btn btn-primary btn-sm" onclick="showUpdateProgressModal('${g.id}', '${g.customized_title || g.title}')">
+              Update Progress
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="showUploadFileModal('${g.id}', '${g.customized_title || g.title}')">
+              📎 Upload File
+            </button>
+            ${g.files && g.files.length > 0 ? `
+              <button class="btn btn-secondary btn-sm" onclick="showViewFilesModal('${g.id}', '${g.customized_title || g.title}')">
+                View Files (${g.files.length})
               </button>
-            </div>
-          `).join('')}
-        </div>
-      `;
-    }
-
-    function renderFeedback(feedback) {
-      if (feedback.length === 0) {
-        return `
-          <div class="card">
-            <div class="empty-state">
-              <h3>No AI Feedback Yet</h3>
-              <p>AI feedback will appear here after you submit progress updates on your goals.</p>
-            </div>
+            ` : ''}
+            <button class="btn btn-secondary btn-sm" onclick="showUpdateWeightageModal('${g.id}', '${g.customized_title || g.title}', ${g.weightage || 0})">
+              Update Weightage
+            </button>
           </div>
-        `;
-      }
-      
-      // Group feedback by goal
-      const grouped = {};
-      feedback.forEach(f => {
-        if (!grouped[f.goal_title]) grouped[f.goal_title] = [];
-        grouped[f.goal_title].push(f);
-      });
-      
-      return `
-        <div class="card">
-          <h3 class="card-title mb-4">AI-Generated Feedback</h3>
-          ${Object.entries(grouped).map(([goal, items]) => `
-            <div style="margin-bottom: 25px;">
-              <h4 style="margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border);">${goal}</h4>
-              ${items.map(f => `
-                <div class="ai-feedback">
-                  <span class="feedback-type ${f.feedback_type === 'STRENGTH' ? 'strength' : f.feedback_type === 'DEVELOPMENT_AREA' ? 'development' : 'insight'}">
-                    ${f.feedback_type}
-                  </span>
-                  <p style="margin-top: 8px;"><strong>${f.title}:</strong> ${f.ai_generated_text}</p>
-                  <p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
-                    Confidence: ${Math.round(f.confidence_score * 100)}%
-                  </p>
-                </div>
-              `).join('')}
+          
+          ${g.manager_feedback ? `
+            <div style="margin-top: 15px; padding: 12px; background: rgba(0,0,0,0.05); border-radius: 8px;">
+              <strong>Manager Feedback:</strong>
+              <p style="font-size: 13px; margin-top: 5px;">${g.manager_feedback}</p>
             </div>
-          `).join('')}
+          ` : ''}
         </div>
       `;
     }
 
-    function renderRecommendations(recs) {
-      if (recs.length === 0) {
-        return `
-          <div class="card">
-            <div class="empty-state">
-              <h3>No Recommendations Yet</h3>
-              <p>AI-powered recommendations will appear here based on your performance.</p>
-            </div>
-          </div>
-        `;
-      }
-      
-      const icons = { 'LEARNING': '📚', 'SKILL_GAP': '🎯', 'CAREER_PATH': '🚀', 'COACHING': '👨‍🏫', 'TEAM_DEVELOPMENT': '👥', 'HIRING': '💼' };
-      
-      return `
-        <div class="card">
-          <h3 class="card-title mb-4">Personalized Recommendations</h3>
-          ${recs.map(r => `
-            <div class="recommendation-item">
-              <div class="recommendation-icon">${icons[r.recommendation_type] || '💡'}</div>
-              <div style="flex: 1;">
-                <div class="flex justify-between items-center">
-                  <strong>${r.title}</strong>
-                  <span class="badge badge-${r.priority === 'HIGH' ? 'danger' : r.priority === 'MEDIUM' ? 'warning' : 'info'}">${r.priority}</span>
-                </div>
-                <p style="color: var(--text-secondary); font-size: 14px; margin-top: 5px;">${r.description}</p>
-                <p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
-                  Type: ${r.recommendation_type} • Confidence: ${Math.round(r.confidence_score * 100)}%
-                </p>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      `;
-    }
-
-    function renderRatings(ratings) {
+    function renderMyRatings(ratings) {
       if (ratings.length === 0) {
         return `
           <div class="card">
@@ -643,10 +1059,10 @@
           <h3 class="card-title mb-4">My Performance Ratings</h3>
           ${ratings.map(r => {
             const score = Math.round(r.final_score * 100);
-            const label = score >= 85 ? 'Exceeds Expectations' : score >= 70 ? 'Meets Expectations' : 'Developing';
+            const label = score >= 85 ? 'Exceeds Expectations' : score >= 70 ? 'Meets Expectations' : score >= 50 ? 'Developing' : 'Needs Improvement';
             return `
               <div style="margin-bottom: 20px; padding: 20px; background: var(--background); border-radius: 12px;">
-                <div class="flex items-center gap-4">
+                <div class="flex items-center gap-4 mb-3">
                   <div class="rating-circle" style="border-color: ${score >= 70 ? 'var(--success)' : 'var(--warning)'}; color: ${score >= 70 ? 'var(--success)' : 'var(--warning)'};">
                     ${score}%
                   </div>
@@ -656,6 +1072,28 @@
                     ${r.adjustment_explanation ? `<p style="font-size: 13px; color: var(--primary); margin-top: 5px;">🤝 ${r.adjustment_explanation}</p>` : ''}
                   </div>
                 </div>
+                
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border);">
+                  <h5 style="margin-bottom: 10px;">📊 Data Points</h5>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">
+                    <div style="padding: 10px; background: rgba(0,0,0,0.03); border-radius: 6px;">
+                      <small style="color: var(--text-secondary);">Goal Completion</small>
+                      <p style="font-weight: bold;">${r.goal_completion || 0}%</p>
+                    </div>
+                    <div style="padding: 10px; background: rgba(0,0,0,0.03); border-radius: 6px;">
+                      <small style="color: var(--text-secondary);">Goals Assessed</small>
+                      <p style="font-weight: bold;">${r.goals_count || 0}</p>
+                    </div>
+                    <div style="padding: 10px; background: rgba(0,0,0,0.03); border-radius: 6px;">
+                      <small style="color: var(--text-secondary);">Life Event Adjustment</small>
+                      <p style="font-weight: bold;">${r.empathy_adjustment || 0}%</p>
+                    </div>
+                    <div style="padding: 10px; background: rgba(0,0,0,0.03); border-radius: 6px;">
+                      <small style="color: var(--text-secondary);">Raw Score</small>
+                      <p style="font-weight: bold;">${Math.round(r.raw_score * 100)}%</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             `;
           }).join('')}
@@ -663,9 +1101,89 @@
       `;
     }
 
-    // ============ Modal Functions ============
+    function renderLifeEvents(lifeEvents, pendingApprovals) {
+      const isManager = currentUser.role === 'MANAGER';
+      
+      let html = '';
+      
+      // Show pending approvals for manager
+      if (isManager && pendingApprovals && pendingApprovals.length > 0) {
+        html += `
+          <div class="card" style="border-left: 4px solid var(--warning);">
+            <div class="card-header">
+              <h3 class="card-title">⏳ Pending Approvals</h3>
+            </div>
+            ${pendingApprovals.map(le => `
+              <div style="margin-bottom: 15px; padding: 15px; background: var(--background); border-radius: 8px;">
+                <div class="flex justify-between items-center">
+                  <div>
+                    <strong>${le.employee_name}</strong>
+                    <p style="color: var(--text-secondary); font-size: 14px;">${le.event_type} - ${le.start_date} to ${le.end_date}</p>
+                    <p style="font-size: 13px; margin-top: 5px;">${le.reason || ''}</p>
+                  </div>
+                  <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-success btn-sm" onclick="approveLifeEvent('${le.id}')">Approve</button>
+                    <button class="btn btn-danger btn-sm" onclick="rejectLifeEvent('${le.id}')">Reject</button>
+                  </div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+      
+      // Show employee's own life events
+      html += `
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">My Life Events</h3>
+            ${!isManager ? '<button class="btn btn-primary btn-sm" onclick="showAddLifeEventModal()">+ Add Life Event</button>' : ''}
+          </div>
+          <p style="color: var(--text-secondary); margin-bottom: 15px;">
+            ${!isManager ? 'Add life events that may have affected your performance (e.g., dependent\'s death, medical leave, sabbatical). Manager approval required.' : 'Life events submitted by your team members.'}
+          </p>
+          ${lifeEvents.length === 0 ? '<div class="empty-state"><p>No life events recorded</p></div>' : `
+            ${lifeEvents.map(le => `
+              <div style="margin-bottom: 15px; padding: 15px; background: var(--background); border-radius: 8px; border-left: 4px solid ${le.status === 'APPROVED' ? 'var(--success)' : le.status === 'PENDING' ? 'var(--warning)' : 'var(--danger)'};">
+                <div class="flex justify-between items-center">
+                  <div>
+                    <h4>${le.event_type}</h4>
+                    <p style="color: var(--text-secondary); font-size: 14px;">
+                      ${le.start_date} to ${le.end_date}
+                    </p>
+                    <p style="font-size: 13px; margin-top: 5px;">${le.reason || ''}</p>
+                    ${le.adjustment_percentage ? `<p style="font-size: 13px; color: var(--primary);">Rating Adjustment: ${le.adjustment_percentage}%</p>` : ''}
+                  </div>
+                  <div>
+                    <span class="badge badge-${le.status === 'APPROVED' ? 'success' : le.status === 'PENDING' ? 'warning' : 'danger'}">${le.status}</span>
+                    ${!isManager && le.status === 'PENDING' ? `
+                      <button class="btn btn-sm btn-secondary" style="margin-left: 10px;" onclick="showEditLifeEventModal('${le.id}', '${le.event_type}', '${le.start_date}', '${le.end_date}', '${le.reason || ''}')">Edit</button>
+                      <button class="btn btn-sm btn-danger" onclick="deleteLifeEvent('${le.id}')">Delete</button>
+                    ` : ''}
+                  </div>
+                </div>
+              </div>
+            `).join('')}
+          `}
+        </div>
+      `;
+      
+      return html;
+    }
 
-    function showAddUserModal() {
+    // ============ MODAL FUNCTIONS ============
+
+    function closeModal() {
+      document.getElementById('modal-overlay').classList.remove('active');
+    }
+
+    // User Modals
+    async function showAddUserModal() {
+      const token = localStorage.getItem('token');
+      const managers = await fetch('/api/admin/managers', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(r => r.json());
+      
       document.getElementById('modal-title').textContent = 'Add New User';
       document.getElementById('modal-content').innerHTML = `
         <form onsubmit="addUser(event)">
@@ -683,10 +1201,17 @@
           </div>
           <div class="form-group">
             <label class="form-label">Role</label>
-            <select name="role" class="form-select" required>
+            <select name="role" class="form-select" required onchange="toggleManagerField(this.value)">
               <option value="EMPLOYEE">Employee</option>
               <option value="MANAGER">Manager</option>
               <option value="ADMIN">Admin</option>
+            </select>
+          </div>
+          <div class="form-group" id="manager-field" style="display: none;">
+            <label class="form-label">Manager (for Employees)</label>
+            <select name="managerId" class="form-select">
+              <option value="">No Manager</option>
+              ${managers.map(m => `<option value="${m.id}">${m.name}</option>`).join('')}
             </select>
           </div>
           <div class="form-group">
@@ -697,13 +1222,57 @@
             <label class="form-label">Position</label>
             <input type="text" name="position" class="form-input">
           </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Add User</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    function toggleManagerField(role) {
+      document.getElementById('manager-field').style.display = role === 'EMPLOYEE' ? 'block' : 'none';
+    }
+
+    async function showEditUserModal(id, name, email, role, managerId, department, position) {
+      const token = localStorage.getItem('token');
+      const managers = await fetch('/api/admin/managers', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(r => r.json());
+      
+      document.getElementById('modal-title').textContent = 'Edit User';
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="updateUser(event, '${id}')">
           <div class="form-group">
-            <label class="form-label">Manager (for Employees/Managers)</label>
-            <select name="managerId" class="form-select">
-              <option value="">No Manager</option>
+            <label class="form-label">Name</label>
+            <input type="text" name="name" class="form-input" value="${name}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" name="email" class="form-input" value="${email}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Role</label>
+            <select name="role" class="form-select" required>
+              <option value="EMPLOYEE" ${role === 'EMPLOYEE' ? 'selected' : ''}>Employee</option>
+              <option value="MANAGER" ${role === 'MANAGER' ? 'selected' : ''}>Manager</option>
+              <option value="ADMIN" ${role === 'ADMIN' ? 'selected' : ''}>Admin</option>
             </select>
           </div>
-          <button type="submit" class="btn btn-primary" style="width: 100%;">Add User</button>
+          <div class="form-group">
+            <label class="form-label">Manager</label>
+            <select name="managerId" class="form-select">
+              <option value="">No Manager</option>
+              ${managers.filter(m => m.id !== id).map(m => `<option value="${m.id}" ${m.id === managerId ? 'selected' : ''}>${m.name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Department</label>
+            <input type="text" name="department" class="form-input" value="${department}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Position</label>
+            <input type="text" name="position" class="form-input" value="${position}">
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Update User</button>
         </form>
       `;
       document.getElementById('modal-overlay').classList.add('active');
@@ -719,7 +1288,7 @@
         role: form.role.value,
         department: form.department.value,
         position: form.position.value,
-        managerId: form.managerId.value || null
+        managerId: form.managerId?.value || null
       };
       
       const token = localStorage.getItem('token');
@@ -733,10 +1302,57 @@
         closeModal();
         navigateTo('users');
       } else {
-        alert('Failed to add user');
+        const err = await response.json();
+        alert('Failed to add user: ' + err.error);
       }
     }
 
+    async function updateUser(e, id) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        name: form.name.value,
+        email: form.email.value,
+        role: form.role.value,
+        department: form.department.value,
+        position: form.position.value,
+        managerId: form.managerId?.value || null
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/admin/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        navigateTo('users');
+      } else {
+        const err = await response.json();
+        alert('Failed to update user: ' + err.error);
+      }
+    }
+
+    async function deleteUser(id) {
+      if (!confirm('Are you sure you want to delete this user?')) return;
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/admin/users/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        navigateTo('users');
+      } else {
+        const err = await response.json();
+        alert('Failed to delete user: ' + err.error);
+      }
+    }
+
+    // Goal Modals
     function showAddGoalModal() {
       document.getElementById('modal-title').textContent = 'Add New Goal';
       document.getElementById('modal-content').innerHTML = `
@@ -758,10 +1374,36 @@
             <input type="text" name="competencies" class="form-input" placeholder="e.g., Leadership, Communication">
           </div>
           <div class="form-group">
-            <label class="form-label">AI Context</label>
+            <label class="form-label">Context for AI</label>
             <textarea name="contextForAI" class="form-textarea" placeholder="What does excellence look like for this goal?"></textarea>
           </div>
           <button type="submit" class="btn btn-primary" style="width: 100%;">Create Goal</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    function showEditGoalModal(id, title, description, successCriteria, competencies) {
+      document.getElementById('modal-title').textContent = 'Edit Goal';
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="updateGoal(event, '${id}')">
+          <div class="form-group">
+            <label class="form-label">Title</label>
+            <input type="text" name="title" class="form-input" value="${title}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea name="description" class="form-textarea">${description}</textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Success Criteria</label>
+            <textarea name="successCriteria" class="form-textarea">${successCriteria}</textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Competencies</label>
+            <input type="text" name="competencies" class="form-input" value="${competencies}">
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Update Goal</button>
         </form>
       `;
       document.getElementById('modal-overlay').classList.add('active');
@@ -775,7 +1417,7 @@
         description: form.description.value,
         successCriteria: form.successCriteria.value,
         competencies: form.competencies.value,
-        contextForAI: form.contextForAI.value
+        contextForAI: form.contextForAI?.value || ''
       };
       
       const token = localStorage.getItem('token');
@@ -793,6 +1435,325 @@
       }
     }
 
+    async function updateGoal(e, id) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        title: form.title.value,
+        description: form.description.value,
+        successCriteria: form.successCriteria.value,
+        competencies: form.competencies.value
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/admin/goals/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        navigateTo('goals');
+      } else {
+        alert('Failed to update goal');
+      }
+    }
+
+    async function deleteGoal(id) {
+      if (!confirm('Are you sure you want to delete this goal?')) return;
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/admin/goals/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        navigateTo('goals');
+      } else {
+        const err = await response.json();
+        alert('Failed to delete goal: ' + err.error);
+      }
+    }
+
+    // Period Modals
+    function showAddPeriodModal() {
+      document.getElementById('modal-title').textContent = 'Add Rating Period';
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="addPeriod(event)">
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" name="name" class="form-input" placeholder="e.g., Q1 2024" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Start Date</label>
+            <input type="date" name="start_date" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">End Date</label>
+            <input type="date" name="end_date" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">
+              <input type="checkbox" name="is_active" checked> Set as Active
+            </label>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Add Period</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    function showEditPeriodModal(id, name, startDate, endDate, isActive) {
+      document.getElementById('modal-title').textContent = 'Edit Rating Period';
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="updatePeriod(event, '${id}')">
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" name="name" class="form-input" value="${name}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Start Date</label>
+            <input type="date" name="start_date" class="form-input" value="${startDate}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">End Date</label>
+            <input type="date" name="end_date" class="form-input" value="${endDate}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">
+              <input type="checkbox" name="is_active" ${isActive ? 'checked' : ''}> Active
+            </label>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Update Period</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    async function addPeriod(e) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        name: form.name.value,
+        start_date: form.start_date.value,
+        end_date: form.end_date.value,
+        is_active: form.is_active.checked
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/rating-periods', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        navigateTo('periods');
+      } else {
+        const err = await response.json();
+        alert('Failed to add period: ' + err.error);
+      }
+    }
+
+    async function updatePeriod(e, id) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        name: form.name.value,
+        start_date: form.start_date.value,
+        end_date: form.end_date.value,
+        is_active: form.is_active.checked
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/rating-periods/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        navigateTo('periods');
+      } else {
+        const err = await response.json();
+        alert('Failed to update period: ' + err.error);
+      }
+    }
+
+    async function deletePeriod(id) {
+      if (!confirm('Are you sure you want to delete this period?')) return;
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/rating-periods/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        navigateTo('periods');
+      } else {
+        const err = await response.json();
+        alert('Failed to delete period: ' + err.error);
+      }
+    }
+
+    // Group Modals
+    function showAddGroupModal() {
+      document.getElementById('modal-title').textContent = 'Add Group';
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="addGroup(event)">
+          <div class="form-group">
+            <label class="form-label">Group Name</label>
+            <input type="text" name="name" class="form-input" placeholder="e.g., QA, Dev, Design" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea name="description" class="form-textarea"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Create Group</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    function showEditGroupModal(id, name, description) {
+      document.getElementById('modal-title').textContent = 'Edit Group';
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="updateGroup(event, '${id}')">
+          <div class="form-group">
+            <label class="form-label">Group Name</label>
+            <input type="text" name="name" class="form-input" value="${name}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea name="description" class="form-textarea">${description}</textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Update Group</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    async function showMapGoalsModal(groupId, groupName) {
+      const token = localStorage.getItem('token');
+      const goals = await fetch('/api/admin/goals', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(r => r.json());
+      
+      const group = await fetch(`/api/admin/groups/${groupId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(r => r.json());
+      
+      const mappedGoalIds = (group.goals || []).map(g => g.id);
+      
+      document.getElementById('modal-title').textContent = `Map Goals to ${groupName}`;
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="mapGoals(event, '${groupId}')">
+          <p style="margin-bottom: 15px; color: var(--text-secondary);">Select goals to map to this group. These goals will be automatically assigned to employees in this role.</p>
+          <div style="max-height: 300px; overflow-y: auto;">
+            ${goals.map(g => `
+              <div style="padding: 10px; border-bottom: 1px solid var(--border);">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                  <input type="checkbox" name="goal_ids" value="${g.id}" ${mappedGoalIds.includes(g.id) ? 'checked' : ''}>
+                  <span>${g.title}</span>
+                </label>
+              </div>
+            `).join('')}
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 15px;">Save Mapping</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    async function addGroup(e) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        name: form.name.value,
+        description: form.description.value
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/admin/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        navigateTo('groups');
+      } else {
+        alert('Failed to add group');
+      }
+    }
+
+    async function updateGroup(e, id) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        name: form.name.value,
+        description: form.description.value
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/admin/groups/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        navigateTo('groups');
+      } else {
+        alert('Failed to update group');
+      }
+    }
+
+    async function deleteGroup(id) {
+      if (!confirm('Are you sure you want to delete this group?')) return;
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/admin/groups/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        navigateTo('groups');
+      } else {
+        const err = await response.json();
+        alert('Failed to delete group: ' + err.error);
+      }
+    }
+
+    async function mapGoals(e, groupId) {
+      e.preventDefault();
+      const form = e.target;
+      const goalIds = Array.from(form.querySelectorAll('input[name="goal_ids"]:checked')).map(cb => cb.value);
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/admin/groups/${groupId}/goals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ goal_ids: goalIds })
+      });
+      
+      if (response.ok) {
+        closeModal();
+        navigateTo('groups');
+      } else {
+        alert('Failed to map goals');
+      }
+    }
+
+    // Goal Progress Update
     function showUpdateProgressModal(goalId, goalTitle) {
       document.getElementById('modal-title').textContent = `Update Progress - ${goalTitle}`;
       document.getElementById('modal-content').innerHTML = `
@@ -834,15 +1795,422 @@
       
       if (response.ok) {
         closeModal();
-        alert('Progress submitted! AI feedback will be generated shortly.');
+        alert('Progress submitted! Feedback will be generated shortly.');
         navigateTo('my-goals');
       } else {
-        alert('Failed to submit progress');
+        const err = await response.json();
+        alert('Failed to submit progress: ' + err.error);
       }
     }
 
-    function closeModal() {
-      document.getElementById('modal-overlay').classList.remove('active');
+    // File Upload Modal
+    function showUploadFileModal(goalId, goalTitle) {
+      document.getElementById('modal-title').textContent = `Upload File - ${goalTitle}`;
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="uploadFile(event, '${goalId}')">
+          <div class="form-group">
+            <label class="form-label">File</label>
+            <input type="file" name="file" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea name="description" class="form-textarea" placeholder="What is this file about?"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Upload</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    async function uploadFile(e, goalId) {
+      e.preventDefault();
+      const form = e.target;
+      const fileInput = form.file;
+      const description = form.description.value;
+      
+      if (!fileInput.files.length) {
+        alert('Please select a file');
+        return;
+      }
+      
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      formData.append('description', description);
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/employee/goals/${goalId}/files`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      
+      if (response.ok) {
+        closeModal();
+        alert('File uploaded successfully!');
+        navigateTo('my-goals');
+      } else {
+        const err = await response.json();
+        alert('Failed to upload file: ' + err.error);
+      }
+    }
+
+    function showViewFilesModal(goalId, goalTitle) {
+      // This would show a modal with the list of uploaded files
+      // For now, we'll just navigate to the goals page which shows files
+      navigateTo('my-goals');
+    }
+
+    // Weightage Update Modal
+    function showUpdateWeightageModal(goalId, goalTitle, currentWeightage) {
+      document.getElementById('modal-title').textContent = `Update Weightage - ${goalTitle}`;
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="updateWeightage(event, '${goalId}')">
+          <p style="margin-bottom: 15px; color: var(--text-secondary);">
+            Weightage determines the importance of this goal relative to others. 
+            Updates require manager approval.
+          </p>
+          <div class="form-group">
+            <label class="form-label">Weightage (%)</label>
+            <input type="number" name="weightage" class="form-input" min="0" max="100" value="${currentWeightage}" required>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Submit for Approval</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    async function updateWeightage(e, goalId) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        weightage: parseInt(form.weightage.value)
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/employee/goals/${goalId}/weightage`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        alert('Weightage update submitted for manager approval!');
+        navigateTo('my-goals');
+      } else {
+        const err = await response.json();
+        alert('Failed to update weightage: ' + err.error);
+      }
+    }
+
+    // Life Events Modal
+    function showAddLifeEventModal() {
+      document.getElementById('modal-title').textContent = 'Add Life Event';
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="addLifeEvent(event)">
+          <div class="form-group">
+            <label class="form-label">Event Type</label>
+            <select name="event_type" class="form-select" required>
+              <option value="">Select event type</option>
+              <option value="Medical Leave">Medical Leave</option>
+              <option value="Dependent Death">Dependent Death</option>
+              <option value="Sabbatical">Sabbatical</option>
+              <option value="Maternity Leave">Maternity Leave</option>
+              <option value="Paternity Leave">Paternity Leave</option>
+              <option value="Bereavement">Bereavement</option>
+              <option value="Family Emergency">Family Emergency</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Start Date</label>
+            <input type="date" name="start_date" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">End Date</label>
+            <input type="date" name="end_date" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reason (Optional)</label>
+            <textarea name="reason" class="form-textarea" placeholder="Brief description of how this affected your work"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Submit for Approval</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    function showEditLifeEventModal(id, eventType, startDate, endDate, reason) {
+      document.getElementById('modal-title').textContent = 'Edit Life Event';
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="updateLifeEvent(event, '${id}')">
+          <div class="form-group">
+            <label class="form-label">Event Type</label>
+            <select name="event_type" class="form-select" required>
+              <option value="Medical Leave" ${eventType === 'Medical Leave' ? 'selected' : ''}>Medical Leave</option>
+              <option value="Dependent Death" ${eventType === 'Dependent Death' ? 'selected' : ''}>Dependent Death</option>
+              <option value="Sabbatical" ${eventType === 'Sabbatical' ? 'selected' : ''}>Sabbatical</option>
+              <option value="Maternity Leave" ${eventType === 'Maternity Leave' ? 'selected' : ''}>Maternity Leave</option>
+              <option value="Paternity Leave" ${eventType === 'Paternity Leave' ? 'selected' : ''}>Paternity Leave</option>
+              <option value="Bereavement" ${eventType === 'Bereavement' ? 'selected' : ''}>Bereavement</option>
+              <option value="Family Emergency" ${eventType === 'Family Emergency' ? 'selected' : ''}>Family Emergency</option>
+              <option value="Other" ${eventType === 'Other' ? 'selected' : ''}>Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Start Date</label>
+            <input type="date" name="start_date" class="form-input" value="${startDate}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">End Date</label>
+            <input type="date" name="end_date" class="form-input" value="${endDate}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reason</label>
+            <textarea name="reason" class="form-textarea">${reason}</textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Update</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    async function addLifeEvent(e) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        event_type: form.event_type.value,
+        start_date: form.start_date.value,
+        end_date: form.end_date.value,
+        reason: form.reason.value
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/employee/life-events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        alert('Life event submitted for manager approval!');
+        navigateTo('life-events');
+      } else {
+        const err = await response.json();
+        alert('Failed to add life event: ' + err.error);
+      }
+    }
+
+    async function updateLifeEvent(e, id) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        event_type: form.event_type.value,
+        start_date: form.start_date.value,
+        end_date: form.end_date.value,
+        reason: form.reason.value
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/employee/life-events/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        navigateTo('life-events');
+      } else {
+        const err = await response.json();
+        alert('Failed to update life event: ' + err.error);
+      }
+    }
+
+    async function deleteLifeEvent(id) {
+      if (!confirm('Are you sure you want to delete this life event?')) return;
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/employee/life-events/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        navigateTo('life-events');
+      } else {
+        const err = await response.json();
+        alert('Failed to delete life event: ' + err.error);
+      }
+    }
+
+    async function approveLifeEvent(id) {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/manager/life-events/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        alert('Life event approved!');
+        navigateTo('life-events');
+      } else {
+        const err = await response.json();
+        alert('Failed to approve: ' + err.error);
+      }
+    }
+
+    async function rejectLifeEvent(id) {
+      const reason = prompt('Please provide a reason for rejection:');
+      if (!reason) return;
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/manager/life-events/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ reason })
+      });
+      
+      if (response.ok) {
+        alert('Life event rejected!');
+        navigateTo('life-events');
+      } else {
+        const err = await response.json();
+        alert('Failed to reject: ' + err.error);
+      }
+    }
+
+    // Manager Team Modals
+    function showAddTeamMemberModal() {
+      alert('To add team members, please contact Admin to create the user and assign them to your management.');
+    }
+
+    async function removeTeamMember(id) {
+      if (!confirm('Are you sure you want to remove this team member from your team?')) return;
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/manager/team/${id}/unassign`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        navigateTo('manager-team');
+      } else {
+        const err = await response.json();
+        alert('Failed to remove team member: ' + err.error);
+      }
+    }
+
+    function showAssignGoalModal(employeeId, employeeName) {
+      document.getElementById('modal-title').textContent = `Assign Goals to ${employeeName}`;
+      document.getElementById('modal-content').innerHTML = `
+        <div style="padding: 20px;">
+          <p style="margin-bottom: 15px;">You can assign or reassign goals from the Goal Management section.</p>
+          <button class="btn btn-primary" onclick="closeModal(); navigateTo('manager-goals');">Go to Goal Management</button>
+        </div>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    function showLinkProjectModal(employeeId, employeeName) {
+      document.getElementById('modal-title').textContent = `Link to Project - ${employeeName}`;
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="linkProject(event, '${employeeId}')">
+          <div class="form-group">
+            <label class="form-label">Project Name</label>
+            <input type="text" name="project_name" class="form-input" placeholder="Enter project name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Note</label>
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 10px;">
+              Linking to a project requires admin approval.
+            </p>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Request Link</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    async function linkProject(e, employeeId) {
+      e.preventDefault();
+      alert('Project linking request submitted. Admin approval required.');
+      closeModal();
+    }
+
+    // Custom Goal Modals
+    function showAddCustomGoalModal() {
+      document.getElementById('modal-title').textContent = 'Add Custom Team Goal';
+      document.getElementById('modal-content').innerHTML = `
+        <form onsubmit="addCustomGoal(event)">
+          <div class="form-group">
+            <label class="form-label">Goal Title</label>
+            <input type="text" name="title" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea name="description" class="form-textarea"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Add Custom Goal</button>
+        </form>
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    async function addCustomGoal(e) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        title: form.title.value,
+        description: form.description.value
+      };
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/manager/custom-goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+      
+      if (response.ok) {
+        closeModal();
+        navigateTo('manager-goals');
+      } else {
+        const err = await response.json();
+        alert('Failed to add custom goal: ' + err.error);
+      }
+    }
+
+    async function deleteCustomGoal(id) {
+      if (!confirm('Are you sure you want to delete this custom goal?')) return;
+      
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/manager/custom-goals/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        navigateTo('manager-goals');
+      } else {
+        const err = await response.json();
+        alert('Failed to delete custom goal: ' + err.error);
+      }
+    }
+
+    function showRemoveCustomGoalModal(goalId, goalTitle) {
+      if (!confirm(`Remove goal "${goalTitle}" from all team members?`)) return;
+      
+      // This would call an API to remove the goal assignment
+      alert('Goal removed from team members.');
+    }
+
+    function toggleGoalDetails() {
+      document.querySelectorAll('.goal-header').forEach(th => {
+        th.style.writingMode = th.style.writingMode === 'vertical-rl' ? 'horizontal-tb' : 'vertical-rl';
+      });
     }
 
     function logout() {

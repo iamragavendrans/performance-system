@@ -230,10 +230,90 @@ function createTables() {
       name TEXT NOT NULL,
       start_date TEXT NOT NULL,
       end_date TEXT NOT NULL,
-      is_active INTEGER DEFAULT 1,
+      is_active INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // 13. Life Events (for employee empathy adjustments)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS life_events (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      reason TEXT,
+      status TEXT DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'APPROVED', 'REJECTED')),
+      adjustment_percentage INTEGER DEFAULT 0,
+      rejection_reason TEXT,
+      verified_by TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(employee_id) REFERENCES users(id),
+      FOREIGN KEY(verified_by) REFERENCES users(id)
+    )
+  `);
+
+  // 14. Groups (for role-based goal mapping)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS groups (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 15. Group Goals Mapping
+  db.run(`
+    CREATE TABLE IF NOT EXISTS group_goals (
+      group_id TEXT NOT NULL,
+      goal_id TEXT NOT NULL,
+      PRIMARY KEY(group_id, goal_id),
+      FOREIGN KEY(group_id) REFERENCES groups(id),
+      FOREIGN KEY(goal_id) REFERENCES goals(id)
+    )
+  `);
+
+  // 16. Custom Goals (for manager-created team goals)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS custom_goals (
+      id TEXT PRIMARY KEY,
+      manager_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(manager_id) REFERENCES users(id)
+    )
+  `);
+
+  // 17. Goal Files (for file uploads on goals)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS goal_files (
+      id TEXT PRIMARY KEY,
+      employee_goal_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      file_path TEXT,
+      description TEXT,
+      uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(employee_goal_id) REFERENCES employee_goals(id)
+    )
+  `);
+
+  // Update employee_goals table to include weightage and files
+  // Note: These ALTER TABLE statements may fail if columns already exist
+  // We catch and ignore these errors
+  try { db.run('ALTER TABLE employee_goals ADD COLUMN weightage INTEGER DEFAULT 0'); } catch (e) {}
+  try { db.run('ALTER TABLE employee_goals ADD COLUMN weightage_pending_approval INTEGER DEFAULT 0'); } catch (e) {}
+  try { db.run('ALTER TABLE employee_goals ADD COLUMN manager_feedback TEXT'); } catch (e) {}
+  try { db.run('ALTER TABLE employee_goals ADD COLUMN is_custom INTEGER DEFAULT 0'); } catch (e) {}
+  try { db.run('ALTER TABLE employee_goals ADD COLUMN latest_completion INTEGER DEFAULT 0'); } catch (e) {}
+
+  // Update ratings table to include more detail
+  try { db.run('ALTER TABLE ratings ADD COLUMN goal_completion REAL DEFAULT 0'); } catch (e) {}
+  try { db.run('ALTER TABLE ratings ADD COLUMN goals_count INTEGER DEFAULT 0'); } catch (e) {}
+  try { db.run('ALTER TABLE ratings ADD COLUMN empathy_adjustment REAL DEFAULT 0'); } catch (e) {}
 
   // Create indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)');
@@ -246,6 +326,44 @@ function createTables() {
   db.run('CREATE INDEX IF NOT EXISTS idx_empathy_adjustments_employee ON empathy_adjustments(employee_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_recommendations_employee ON recommendations(employee_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_ratings_employee ON ratings(employee_id)');
+  
+  // Additional indexes for new tables
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_life_events_employee ON life_events(employee_id)'); } catch (e) {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_life_events_status ON life_events(status)'); } catch (e) {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_group_goals_group ON group_goals(group_id)'); } catch (e) {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_group_goals_goal ON group_goals(goal_id)'); } catch (e) {}
+
+  // Migration: Update existing latest_completion column based on progress_updates
+  migrateLatestCompletion();
+}
+
+// Migration function to populate latest_completion for existing data
+function migrateLatestCompletion() {
+  try {
+    // Get all employee_goals with their latest progress update
+    const goalsWithProgress = db.all(`
+      SELECT eg.id, pu.completion_percentage
+      FROM employee_goals eg
+      JOIN (
+        SELECT employee_goal_id, completion_percentage
+        FROM progress_updates
+        WHERE id IN (
+          SELECT id FROM progress_updates
+          GROUP BY employee_goal_id
+          HAVING created_at = MAX(created_at)
+        )
+      ) pu ON eg.id = pu.employee_goal_id
+    `);
+
+    // Update each goal with its latest completion
+    for (const goal of goalsWithProgress) {
+      db.run('UPDATE employee_goals SET latest_completion = ? WHERE id = ?', 
+        [goal.completion_percentage, goal.id]);
+    }
+  } catch (e) {
+    // Ignore errors during migration (column might not exist yet)
+    console.log('Migration note: latest_completion migration skipped or completed');
+  }
 }
 
 // Save database to file

@@ -136,7 +136,7 @@ async function seedDatabase() {
   
   for (const ga of goalAssignments) {
     db.run(
-      `INSERT OR IGNORE INTO employee_goals (id, employee_id, goal_id, customized_title, customized_criteria, assigned_by, assigned_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR IGNORE INTO employee_goals (id, employee_id, goal_id, customized_title, customized_criteria, assigned_by, assigned_at, status, latest_completion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       [uuidv4(), ga.employeeId, ga.goalId, ga.customTitle, ga.customCriteria, managers[0].id, now, 'ACTIVE']
     );
   }

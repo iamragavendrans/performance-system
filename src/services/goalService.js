@@ -107,8 +107,8 @@ class GoalService {
     const now = new Date().toISOString();
 
     db.run(
-      `INSERT INTO employee_goals (id, employee_id, goal_id, customized_title, customized_criteria, assigned_by, assigned_at, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO employee_goals (id, employee_id, goal_id, customized_title, customized_criteria, assigned_by, assigned_at, status, latest_completion)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       [egId, employeeId, goalId, customizedTitle || null, customizedCriteria || null, assignedBy, now, 'ACTIVE']
     );
 
@@ -132,15 +132,29 @@ class GoalService {
    * Get employee's assigned goals
    */
   static getEmployeeGoals(employeeId) {
-    return db.all(
+    const goals = db.all(
       `SELECT eg.*, g.title, g.description, g.success_criteria, g.competencies, g.context_for_ai,
               (SELECT completion_percentage FROM progress_updates WHERE employee_goal_id = eg.id ORDER BY created_at DESC LIMIT 1) as latest_completion
        FROM employee_goals eg
        JOIN goals g ON eg.goal_id = g.id
        WHERE eg.employee_id = ? AND eg.status = 'ACTIVE'
-       ORDER BY eg.assigned_at DESC`,
+       ORDER BY 
+         CASE WHEN (SELECT completion_percentage FROM progress_updates WHERE employee_goal_id = eg.id ORDER BY created_at DESC LIMIT 1) < 40 THEN 1
+              WHEN (SELECT completion_percentage FROM progress_updates WHERE employee_goal_id = eg.id ORDER BY created_at DESC LIMIT 1) >= 100 THEN 3
+              ELSE 2 END,
+         latest_completion DESC`,
       [employeeId]
     );
+    
+    // Get files for each goal
+    goals.forEach(goal => {
+      goal.files = db.all(
+        'SELECT * FROM goal_files WHERE employee_goal_id = ? ORDER BY uploaded_at DESC',
+        [goal.id]
+      );
+    });
+    
+    return goals;
   }
 
   /**
@@ -167,6 +181,12 @@ class GoalService {
       `INSERT INTO progress_updates (id, employee_goal_id, completion_percentage, update_text, evidence, time_period, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [progressId, employeeGoalId, completionPercentage, updateText || '', evidence || '', timePeriod || 'Weekly', now]
+    );
+
+    // Update latest_completion in employee_goals table
+    db.run(
+      `UPDATE employee_goals SET latest_completion = ? WHERE id = ?`,
+      [completionPercentage, employeeGoalId]
     );
 
     // Get employee goal details for AI feedback
