@@ -280,19 +280,22 @@
           break;
           
         // EMPLOYEE VIEWS
-        case 'my-goals':
-          const isManager = currentUser.role === 'MANAGER';
-          const goalsEndpoint = isManager ? '/api/manager/my-goals' : '/api/employee/goals';
+        case 'my-goals': {
+          const isManagerGoals = currentUser.role === 'MANAGER';
+          const goalsEndpoint = isManagerGoals ? '/api/manager/my-goals' : '/api/employee/goals';
           const myGoals = await fetch(goalsEndpoint, { headers }).then(r => r.json());
           content.innerHTML = renderMyGoals(myGoals, token);
           break;
-          
-        case 'my-ratings':
-          const ratingsEndpoint = isManager ? '/api/manager/my-ratings' : '/api/employee/ratings';
+        }
+
+        case 'my-ratings': {
+          const isManagerRatings = currentUser.role === 'MANAGER';
+          const ratingsEndpoint = isManagerRatings ? '/api/manager/my-ratings' : '/api/employee/ratings';
           const ratings = await fetch(ratingsEndpoint, { headers }).then(r => r.json());
           content.innerHTML = renderMyRatings(ratings);
           break;
-          
+        }
+
         case 'life-events':
           const lifeEvents = await fetch('/api/employee/life-events', { headers }).then(r => r.json());
           const pendingApprovals = currentUser.role === 'MANAGER' ? await fetch('/api/manager/pending-life-events', { headers }).then(r => r.json()) : [];
@@ -1118,7 +1121,7 @@
                 <div class="flex justify-between items-center">
                   <div>
                     <strong>${le.employee_name}</strong>
-                    <p style="color: var(--text-secondary); font-size: 14px;">${le.event_type} - ${le.start_date} to ${le.end_date}</p>
+                    <p style="color: var(--text-secondary); font-size: 14px;">${formatEventType(le.event_type)} - ${le.start_date} to ${le.end_date}</p>
                     <p style="font-size: 13px; margin-top: 5px;">${le.reason || ''}</p>
                   </div>
                   <div style="display: flex; gap: 10px;">
@@ -1147,7 +1150,7 @@
               <div style="margin-bottom: 15px; padding: 15px; background: var(--background); border-radius: 8px; border-left: 4px solid ${le.status === 'APPROVED' ? 'var(--success)' : le.status === 'PENDING' ? 'var(--warning)' : 'var(--danger)'};">
                 <div class="flex justify-between items-center">
                   <div>
-                    <h4>${le.event_type}</h4>
+                    <h4>${formatEventType(le.event_type)}</h4>
                     <p style="color: var(--text-secondary); font-size: 14px;">
                       ${le.start_date} to ${le.end_date}
                     </p>
@@ -1207,7 +1210,7 @@
               <option value="ADMIN">Admin</option>
             </select>
           </div>
-          <div class="form-group" id="manager-field" style="display: none;">
+          <div class="form-group" id="manager-field">
             <label class="form-label">Manager (for Employees)</label>
             <select name="managerId" class="form-select">
               <option value="">No Manager</option>
@@ -1648,7 +1651,7 @@
         headers: { 'Authorization': `Bearer ${token}` }
       }).then(r => r.json());
       
-      const mappedGoalIds = (group.goals || []).map(g => g.id);
+      const mappedGoalIds = (group.goals || []).map(g => g.goal_id || g.id);
       
       document.getElementById('modal-title').textContent = `Map Goals to ${groupName}`;
       document.getElementById('modal-content').innerHTML = `
@@ -1827,37 +1830,54 @@
       const form = e.target;
       const fileInput = form.file;
       const description = form.description.value;
-      
+
       if (!fileInput.files.length) {
         alert('Please select a file');
         return;
       }
-      
-      const formData = new FormData();
-      formData.append('file', fileInput.files[0]);
-      formData.append('description', description);
-      
+
+      const fileName = fileInput.files[0].name;
+
       const token = localStorage.getItem('token');
       const response = await fetch(`/api/employee/goals/${goalId}/files`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ file_name: fileName, description })
       });
-      
+
       if (response.ok) {
         closeModal();
-        alert('File uploaded successfully!');
+        alert('File reference saved successfully!');
         navigateTo('my-goals');
       } else {
         const err = await response.json();
-        alert('Failed to upload file: ' + err.error);
+        alert('Failed to save file: ' + err.error);
       }
     }
 
-    function showViewFilesModal(goalId, goalTitle) {
-      // This would show a modal with the list of uploaded files
-      // For now, we'll just navigate to the goals page which shows files
-      navigateTo('my-goals');
+    async function showViewFilesModal(goalId, goalTitle) {
+      const token = localStorage.getItem('token');
+      const files = await fetch(`/api/employee/goals/${goalId}/files`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(r => r.json()).catch(() => []);
+
+      document.getElementById('modal-title').textContent = `Files - ${goalTitle}`;
+      document.getElementById('modal-content').innerHTML = `
+        ${files.length === 0 ? '<p style="color: var(--text-secondary);">No files uploaded yet.</p>' : `
+          <div style="max-height: 300px; overflow-y: auto;">
+            ${files.map(f => `
+              <div style="padding: 12px; margin-bottom: 8px; background: var(--background); border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <strong>${f.file_name}</strong>
+                  ${f.description ? `<p style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">${f.description}</p>` : ''}
+                  <p style="font-size: 12px; color: var(--text-secondary);">Uploaded: ${new Date(f.uploaded_at).toLocaleDateString()}</p>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `}
+      `;
+      document.getElementById('modal-overlay').classList.add('active');
     }
 
     // Weightage Update Modal
@@ -1912,14 +1932,14 @@
             <label class="form-label">Event Type</label>
             <select name="event_type" class="form-select" required>
               <option value="">Select event type</option>
-              <option value="Medical Leave">Medical Leave</option>
-              <option value="Dependent Death">Dependent Death</option>
-              <option value="Sabbatical">Sabbatical</option>
-              <option value="Maternity Leave">Maternity Leave</option>
-              <option value="Paternity Leave">Paternity Leave</option>
-              <option value="Bereavement">Bereavement</option>
-              <option value="Family Emergency">Family Emergency</option>
-              <option value="Other">Other</option>
+              <option value="SICK_LEAVE">Medical Leave</option>
+              <option value="MATERNITY_LEAVE">Maternity Leave</option>
+              <option value="PATERNITY_LEAVE">Paternity Leave</option>
+              <option value="BEREAVEMENT">Bereavement</option>
+              <option value="SABBATICAL">Sabbatical</option>
+              <option value="FAMILY_EMERGENCY">Family Emergency</option>
+              <option value="PERSONAL_EMERGENCY">Personal Emergency</option>
+              <option value="OTHER">Other</option>
             </select>
           </div>
           <div class="form-group">
@@ -1947,14 +1967,14 @@
           <div class="form-group">
             <label class="form-label">Event Type</label>
             <select name="event_type" class="form-select" required>
-              <option value="Medical Leave" ${eventType === 'Medical Leave' ? 'selected' : ''}>Medical Leave</option>
-              <option value="Dependent Death" ${eventType === 'Dependent Death' ? 'selected' : ''}>Dependent Death</option>
-              <option value="Sabbatical" ${eventType === 'Sabbatical' ? 'selected' : ''}>Sabbatical</option>
-              <option value="Maternity Leave" ${eventType === 'Maternity Leave' ? 'selected' : ''}>Maternity Leave</option>
-              <option value="Paternity Leave" ${eventType === 'Paternity Leave' ? 'selected' : ''}>Paternity Leave</option>
-              <option value="Bereavement" ${eventType === 'Bereavement' ? 'selected' : ''}>Bereavement</option>
-              <option value="Family Emergency" ${eventType === 'Family Emergency' ? 'selected' : ''}>Family Emergency</option>
-              <option value="Other" ${eventType === 'Other' ? 'selected' : ''}>Other</option>
+              <option value="SICK_LEAVE" ${eventType === 'SICK_LEAVE' ? 'selected' : ''}>Medical Leave</option>
+              <option value="MATERNITY_LEAVE" ${eventType === 'MATERNITY_LEAVE' ? 'selected' : ''}>Maternity Leave</option>
+              <option value="PATERNITY_LEAVE" ${eventType === 'PATERNITY_LEAVE' ? 'selected' : ''}>Paternity Leave</option>
+              <option value="BEREAVEMENT" ${eventType === 'BEREAVEMENT' ? 'selected' : ''}>Bereavement</option>
+              <option value="SABBATICAL" ${eventType === 'SABBATICAL' ? 'selected' : ''}>Sabbatical</option>
+              <option value="FAMILY_EMERGENCY" ${eventType === 'FAMILY_EMERGENCY' ? 'selected' : ''}>Family Emergency</option>
+              <option value="PERSONAL_EMERGENCY" ${eventType === 'PERSONAL_EMERGENCY' ? 'selected' : ''}>Personal Emergency</option>
+              <option value="OTHER" ${eventType === 'OTHER' ? 'selected' : ''}>Other</option>
             </select>
           </div>
           <div class="form-group">
@@ -2103,15 +2123,59 @@
       }
     }
 
-    function showAssignGoalModal(employeeId, employeeName) {
-      document.getElementById('modal-title').textContent = `Assign Goals to ${employeeName}`;
+    async function showAssignGoalModal(employeeId, employeeName) {
+      const token = localStorage.getItem('token');
+      const goals = await fetch('/api/admin/goals', { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json()).catch(() => []);
+
+      document.getElementById('modal-title').textContent = `Assign Goal to ${employeeName}`;
       document.getElementById('modal-content').innerHTML = `
-        <div style="padding: 20px;">
-          <p style="margin-bottom: 15px;">You can assign or reassign goals from the Goal Management section.</p>
-          <button class="btn btn-primary" onclick="closeModal(); navigateTo('manager-goals');">Go to Goal Management</button>
-        </div>
+        <form onsubmit="assignGoalToEmployee(event, '${employeeId}')">
+          <div class="form-group">
+            <label class="form-label">Select Goal</label>
+            <select name="goalId" class="form-select" required>
+              <option value="">Choose a goal...</option>
+              ${goals.map(g => `<option value="${g.id}">${g.title}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Customized Title (Optional)</label>
+            <input type="text" name="customizedTitle" class="form-input" placeholder="Override goal title for this employee">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Customized Criteria (Optional)</label>
+            <textarea name="customizedCriteria" class="form-textarea" placeholder="Override success criteria"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Assign Goal</button>
+        </form>
       `;
       document.getElementById('modal-overlay').classList.add('active');
+    }
+
+    async function assignGoalToEmployee(e, employeeId) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        employeeId,
+        goalId: form.goalId.value,
+        customizedTitle: form.customizedTitle.value || null,
+        customizedCriteria: form.customizedCriteria.value || null
+      };
+
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/manager/assign-goal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(data)
+      });
+
+      if (response.ok) {
+        closeModal();
+        alert('Goal assigned successfully!');
+        navigateTo('manager-team');
+      } else {
+        const err = await response.json();
+        alert('Failed to assign goal: ' + err.error);
+      }
     }
 
     function showLinkProjectModal(employeeId, employeeName) {
@@ -2205,6 +2269,20 @@
       
       // This would call an API to remove the goal assignment
       alert('Goal removed from team members.');
+    }
+
+    function formatEventType(type) {
+      const map = {
+        'SICK_LEAVE': 'Medical Leave',
+        'MATERNITY_LEAVE': 'Maternity Leave',
+        'PATERNITY_LEAVE': 'Paternity Leave',
+        'BEREAVEMENT': 'Bereavement',
+        'SABBATICAL': 'Sabbatical',
+        'FAMILY_EMERGENCY': 'Family Emergency',
+        'PERSONAL_EMERGENCY': 'Personal Emergency',
+        'OTHER': 'Other'
+      };
+      return map[type] || type;
     }
 
     function toggleGoalDetails() {

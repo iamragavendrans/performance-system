@@ -52,7 +52,7 @@ async function startServer() {
     if (!adminExists) {
       const hashedPassword = bcrypt.hashSync('admin123', 10);
       db.run(
-        `INSERT INTO users (id, email, password, name, role, department, position) 
+        `INSERT INTO users (id, email, password, name, role, department, position)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [uuidv4(), 'admin@company.com', hashedPassword, 'System Admin', 'ADMIN', 'IT', 'Administrator']
       );
@@ -65,11 +65,23 @@ async function startServer() {
       const now = new Date();
       const year = now.getFullYear();
       db.run(
-        `INSERT INTO rating_periods (id, name, start_date, end_date) 
-         VALUES (?, ?, ?, ?)`,
+        `INSERT INTO rating_periods (id, name, start_date, end_date, is_active)
+         VALUES (?, ?, ?, ?, 1)`,
         [uuidv4(), `${year} Q1`, `${year}-01-01`, `${year}-03-31`]
       );
       console.log('Default rating period created');
+    }
+
+    // Seed demo data if no managers exist (first run)
+    const managersExist = db.get("SELECT id FROM users WHERE role = 'MANAGER' LIMIT 1");
+    if (!managersExist) {
+      try {
+        const seedDatabase = require('./db/seed');
+        await seedDatabase();
+        console.log('Demo data seeded successfully');
+      } catch (e) {
+        console.log('Seed skipped:', e.message);
+      }
     }
 
     // Start server

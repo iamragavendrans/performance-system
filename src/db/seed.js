@@ -8,8 +8,10 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../db/database');
 
 async function seedDatabase() {
-  // Initialize database first
-  await db.init();
+  // Only initialize if not already initialized (when run standalone)
+  if (require.main === module) {
+    await db.init();
+  }
   console.log('Seeding database with demo data...');
   
   const now = new Date().toISOString();
@@ -169,6 +171,9 @@ async function seedDatabase() {
         `INSERT INTO progress_updates (id, employee_goal_id, completion_percentage, update_text, time_period, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
         [uuidv4(), empGoal.id, pd.completion, pd.update, 'Weekly', now]
       );
+
+      // Update latest_completion on the employee_goal
+      db.run('UPDATE employee_goals SET latest_completion = ? WHERE id = ?', [pd.completion, empGoal.id]);
       
       // Generate AI feedback for this progress
       const AIService = require('../services/aiService');

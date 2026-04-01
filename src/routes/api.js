@@ -90,7 +90,7 @@ router.get('/auth/me', authenticate, async (req, res) => {
 router.get('/admin/users', authenticate, requireRole('ADMIN'), async (req, res) => {
   try {
     const db = require('../db/database');
-    const users = db.all('SELECT id, email, name, role, manager_id, department, position, created_at FROM users ORDER BY name');
+    const users = db.all('SELECT u.id, u.email, u.name, u.role, u.manager_id, u.department, u.position, u.created_at, m.name as manager_name FROM users u LEFT JOIN users m ON u.manager_id = m.id ORDER BY u.name');
     res.json(users);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -153,8 +153,8 @@ router.get('/admin/stats', authenticate, requireRole('ADMIN'), async (req, res) 
   }
 });
 
-// Get all employees
-router.get('/admin/employees', authenticate, requireRole('ADMIN'), async (req, res) => {
+// Get all employees - accessible by ADMIN and MANAGER
+router.get('/admin/employees', authenticate, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const db = require('../db/database');
     const employees = db.all('SELECT id, email, name, role, manager_id, department, position FROM users WHERE role = ? ORDER BY name', ['EMPLOYEE']);
@@ -216,9 +216,13 @@ router.delete('/admin/users/:id', authenticate, requireRole('ADMIN'), async (req
       return res.status(400).json({ error: 'Cannot delete your own account' });
     }
     
-    // Delete related records first
-    db.run('DELETE FROM employee_goals WHERE employee_id = ?', [req.params.id]);
+    // Delete related records first (order matters for foreign keys)
+    db.run('DELETE FROM ai_feedback WHERE employee_id = ?', [req.params.id]);
+    db.run('DELETE FROM goal_files WHERE employee_goal_id IN (SELECT id FROM employee_goals WHERE employee_id = ?)', [req.params.id]);
     db.run('DELETE FROM progress_updates WHERE employee_goal_id IN (SELECT id FROM employee_goals WHERE employee_id = ?)', [req.params.id]);
+    db.run('DELETE FROM employee_goals WHERE employee_id = ?', [req.params.id]);
+    db.run('DELETE FROM recommendations WHERE employee_id = ?', [req.params.id]);
+    db.run('DELETE FROM empathy_adjustments WHERE employee_id = ?', [req.params.id]);
     db.run('DELETE FROM life_events WHERE employee_id = ?', [req.params.id]);
     db.run('DELETE FROM ratings WHERE employee_id = ?', [req.params.id]);
     db.run('DELETE FROM users WHERE id = ?', [req.params.id]);
@@ -483,8 +487,8 @@ router.post('/admin/groups/:id/goals', authenticate, requireRole('ADMIN'), async
   }
 });
 
-// Get all goals (Admin)
-router.get('/admin/goals', authenticate, requireRole('ADMIN'), async (req, res) => {
+// Get all goals (Admin and Manager)
+router.get('/admin/goals', authenticate, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const GoalService = require('../services/goalService');
     const goals = GoalService.getAllGoals();
@@ -494,8 +498,8 @@ router.get('/admin/goals', authenticate, requireRole('ADMIN'), async (req, res) 
   }
 });
 
-// Get all managers (for assignment)
-router.get('/admin/managers', authenticate, requireRole('ADMIN'), async (req, res) => {
+// Get all managers (for assignment) - accessible by ADMIN and MANAGER
+router.get('/admin/managers', authenticate, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   try {
     const AuthService = require('../services/authService');
     const managers = AuthService.getAllManagers();
@@ -614,9 +618,9 @@ router.get('/manager/my-ratings', authenticate, requireRole('MANAGER'), async (r
     const ratings = db.all(
       `SELECT r.*, rp.name as period_name, rp.start_date, rp.end_date
        FROM ratings r
-       JOIN rating_periods rp ON r.period_id = rp.id
+       LEFT JOIN rating_periods rp ON r.rating_period = rp.id
        WHERE r.employee_id = ?
-       ORDER BY rp.start_date DESC`,
+       ORDER BY r.created_at DESC`,
       [req.user.id]
     );
     res.json(ratings);
@@ -660,6 +664,24 @@ router.delete('/manager/custom-goals/:id', authenticate, requireRole('MANAGER'),
     const db = require('../db/database');
     db.run('DELETE FROM custom_goals WHERE id = ? AND manager_id = ?', [req.params.id, req.user.id]);
     res.json({ success: true });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Unassign team member (remove from manager's team)
+router.post('/manager/team/:id/unassign', authenticate, requireRole('MANAGER'), async (req, res) => {
+  try {
+    const db = require('../db/database');
+
+    // Verify employee is on this manager's team
+    const employee = db.get('SELECT id, manager_id FROM users WHERE id = ? AND manager_id = ?', [req.params.id, req.user.id]);
+    if (!employee) {
+      return res.status(404).json({ error: 'Employee not found on your team' });
+    }
+
+    db.run('UPDATE users SET manager_id = NULL WHERE id = ?', [req.params.id]);
+    res.json({ success: true, message: 'Team member removed from your team' });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -878,9 +900,8 @@ router.get('/employee/feedback', authenticate, async (req, res) => {
     const feedback = db.all(
       `SELECT f.*, g.title as goal_title
        FROM ai_feedback f
-       JOIN employee_goals eg ON f.goal_id = eg.id
-       JOIN goals g ON eg.goal_id = g.id
-       WHERE eg.employee_id = ?
+       LEFT JOIN goals g ON f.goal_id = g.id
+       WHERE f.employee_id = ?
        ORDER BY f.created_at DESC`,
       [req.user.id]
     );
@@ -1011,7 +1032,7 @@ router.post('/employee/life-events', authenticate, async (req, res) => {
     }
     
     // Validate event type
-    const validTypes = ['SICK_LEAVE', 'MATERNITY_LEAVE', 'PATERNITY_LEAVE', 'PERSONAL_EMERGENCY', 'OTHER'];
+    const validTypes = ['SICK_LEAVE', 'MATERNITY_LEAVE', 'PATERNITY_LEAVE', 'BEREAVEMENT', 'SABBATICAL', 'FAMILY_EMERGENCY', 'PERSONAL_EMERGENCY', 'OTHER'];
     if (!validTypes.includes(event_type)) {
       return res.status(400).json({ error: 'Invalid event type' });
     }
@@ -1123,8 +1144,8 @@ router.put('/employee/goals/:id/weightage', authenticate, async (req, res) => {
     }
     
     db.run(
-      `UPDATE employee_goals SET weightage = ?, weightage_pending_approval = 1, updated_at = ? WHERE id = ? AND employee_id = ?`,
-      [weightageNum, new Date().toISOString(), req.params.id, req.user.id]
+      `UPDATE employee_goals SET weightage = ?, weightage_pending_approval = 1 WHERE id = ? AND employee_id = ?`,
+      [weightageNum, req.params.id, req.user.id]
     );
     
     res.json({ success: true, message: 'Weightage updated successfully and sent for manager approval' });
@@ -1137,19 +1158,36 @@ router.put('/employee/goals/:id/weightage', authenticate, async (req, res) => {
 router.post('/employee/goals/:id/files', authenticate, async (req, res) => {
   try {
     const db = require('../db/database');
-    const multer = require('multer');
-    
-    // Simple file handling - in production use multer
-    const { file_name, file_path, description } = req.body;
     const id = require('uuid').v4();
-    
+
+    // Handle both JSON body and form data
+    let file_name, description;
+    if (req.body.file_name) {
+      // JSON body
+      file_name = req.body.file_name;
+      description = req.body.description;
+    } else {
+      // Form data - file info comes from the upload
+      file_name = req.body.description ? `file_${Date.now()}` : `upload_${Date.now()}`;
+      description = req.body.description || null;
+    }
+
+    // Verify goal belongs to user
+    const goal = db.get('SELECT id, employee_id FROM employee_goals WHERE id = ?', [req.params.id]);
+    if (!goal) {
+      return res.status(404).json({ error: 'Goal not found' });
+    }
+    if (goal.employee_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only upload files for your own goals' });
+    }
+
     db.run(
       `INSERT INTO goal_files (id, employee_goal_id, file_name, file_path, description, uploaded_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, req.params.id, file_name, file_path, description || null, new Date().toISOString()]
+      [id, req.params.id, file_name, null, description || null, new Date().toISOString()]
     );
-    
-    res.json({ success: true, id });
+
+    res.json({ success: true, id, file_name });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
