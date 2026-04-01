@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Performance Management System</title>
   <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <!-- Auth Container -->
@@ -353,38 +354,76 @@
       if (currentUser.role === 'ADMIN') {
         // Organization insights
         const stats = await fetch('/api/admin/stats', { headers }).then(r => r.json());
-        return renderAdminDashboard(stats);
+        const html = renderAdminDashboard(stats);
+        setTimeout(() => initAdminCharts(stats), 0);
+        return html;
       } else if (currentUser.role === 'MANAGER') {
         // Team insights
         const stats = await fetch('/api/manager/stats', { headers }).then(r => r.json());
-        return renderManagerDashboard(stats);
+        const pendingLifeEvents = await fetch('/api/manager/pending-life-events', { headers }).then(r => r.json()).catch(() => []);
+        const pendingWeightageChanges = await fetch('/api/manager/pending-weightage-changes', { headers }).then(r => r.json()).catch(() => []);
+        const teamGoals = await fetch('/api/manager/team-goals', { headers }).then(r => r.json()).catch(() => []);
+        const team = await fetch('/api/manager/team', { headers }).then(r => r.json()).catch(() => []);
+        
+        const html = renderManagerDashboard(stats);
+        // After rendering, load the actions section and charts
+        setTimeout(() => {
+          loadActionsRequiredSection(pendingLifeEvents, pendingWeightageChanges, teamGoals, team);
+          initManagerCharts(stats, teamGoals);
+        }, 0);
+        return html;
       } else {
         // Employee insights
         const stats = await fetch('/api/employee/stats', { headers }).then(r => r.json());
-        return renderEmployeeDashboard(stats);
+        const lifeEvents = await fetch('/api/employee/life-events', { headers }).then(r => r.json()).catch(() => []);
+        const goals = await fetch('/api/employee/goals', { headers }).then(r => r.json()).catch(() => []);
+        
+        const html = renderEmployeeDashboard(stats, lifeEvents);
+        // After rendering, load the requests section and charts
+        setTimeout(() => {
+          loadMyRequestsSection(lifeEvents);
+          initEmployeeCharts(stats, goals);
+        }, 0);
+        return html;
       }
     }
 
     function renderAdminDashboard(stats) {
       return `
         <div class="stats-grid">
-          <div class="stat-card">
+          <div class="stat-card" data-card-type="employees" onclick="navigateTo('users')">
             <div class="stat-value">${stats.totalEmployees || 0}</div>
             <div class="stat-label">Total Employees</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" data-card-type="managers" onclick="navigateTo('users')">
             <div class="stat-value">${stats.totalManagers || 0}</div>
             <div class="stat-label">Managers</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" data-card-type="goals" onclick="navigateTo('goals')">
             <div class="stat-value">${stats.activeGoals || 0}</div>
             <div class="stat-label">Active Goals</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" data-card-type="completed" onclick="navigateTo('goals')">
             <div class="stat-value">${stats.completedGoals || 0}</div>
             <div class="stat-label">Completed Goals</div>
           </div>
         </div>
+        
+        <div class="charts-grid" id="admin-charts">
+          <div class="chart-container">
+            <h3 class="chart-title">Goals Overview</h3>
+            <div class="donut-chart-container">
+              <canvas id="goalsOverviewChart"></canvas>
+            </div>
+          </div>
+          <div class="chart-container">
+            <h3 class="chart-title">Completion Rate by Department</h3>
+            <div class="chart-wrapper">
+              <canvas id="departmentComparisonChart"></canvas>
+            </div>
+          </div>
+        </div>
+        
         <div class="card">
           <div class="card-header">
             <h3 class="card-title">Organization Insights</h3>
@@ -418,23 +457,39 @@
     function renderManagerDashboard(stats) {
       return `
         <div class="stats-grid">
-          <div class="stat-card">
+          <div class="stat-card" data-card-type="team-members" onclick="navigateTo('manager-team')">
             <div class="stat-value">${stats.teamMembers || 0}</div>
             <div class="stat-label">Team Members</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" data-card-type="active-goals" onclick="navigateTo('manager-goals')">
             <div class="stat-value">${stats.activeGoals || 0}</div>
             <div class="stat-label">Active Goals</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" data-card-type="completed-goals" onclick="navigateTo('manager-goals')">
             <div class="stat-value">${stats.completedGoals || 0}</div>
             <div class="stat-label">Completed Goals</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" data-card-type="pending-approvals" onclick="filterByPendingApprovals()">
             <div class="stat-value">${stats.pendingApprovals || 0}</div>
             <div class="stat-label">Pending Approvals</div>
           </div>
         </div>
+        
+        <div class="charts-grid" id="manager-charts">
+          <div class="chart-container">
+            <h3 class="chart-title">Team Performance Distribution</h3>
+            <div class="donut-chart-container">
+              <canvas id="teamPerformanceChart"></canvas>
+            </div>
+          </div>
+          <div class="chart-container">
+            <h3 class="chart-title">Goals Progress Overview</h3>
+            <div class="chart-wrapper">
+              <canvas id="goalsProgressChart"></canvas>
+            </div>
+          </div>
+        </div>
+        
         <div class="card">
           <div class="card-header">
             <h3 class="card-title">Team Insights</h3>
@@ -462,29 +517,46 @@
             </div>
           </div>
         </div>
+        <div id="actions-required-section"></div>
       `;
     }
 
-    function renderEmployeeDashboard(stats) {
+    function renderEmployeeDashboard(stats, lifeEvents = []) {
       return `
         <div class="stats-grid">
-          <div class="stat-card">
+          <div class="stat-card" data-card-type="goals" onclick="navigateTo('my-goals')">
             <div class="stat-value">${stats.activeGoals || 0}</div>
             <div class="stat-label">Active Goals</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" data-card-type="completed" onclick="navigateTo('my-goals')">
             <div class="stat-value">${stats.completedGoals || 0}</div>
             <div class="stat-label">Completed Goals</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" data-card-type="completion" onclick="navigateTo('my-goals')">
             <div class="stat-value">${stats.avgCompletion || 0}%</div>
             <div class="stat-label">Avg. Completion</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" data-card-type="pending" onclick="navigateTo('life-events')">
             <div class="stat-value">${stats.pendingApprovals || 0}</div>
             <div class="stat-label">Pending Approvals</div>
           </div>
         </div>
+        
+        <div class="charts-grid" id="employee-charts">
+          <div class="chart-container">
+            <h3 class="chart-title">Goals by Category</h3>
+            <div class="radar-chart-container">
+              <canvas id="goalsRadarChart"></canvas>
+            </div>
+          </div>
+          <div class="chart-container">
+            <h3 class="chart-title">Goal Progress</h3>
+            <div class="goal-progress-bars" id="goalProgressBars">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+        
         <div class="card">
           <div class="card-header">
             <h3 class="card-title">My Performance Insights</h3>
@@ -512,7 +584,492 @@
             </div>
           </div>
         </div>
+        <div id="my-requests-section"></div>
       `;
+    }
+
+    // ============ ACTIONS REQUIRED SECTION (MANAGER) ============
+
+    function loadActionsRequiredSection(pendingLifeEvents, pendingWeightageChanges, teamGoals, team) {
+      const section = document.getElementById('actions-required-section');
+      if (!section) return;
+      
+      // Calculate goals approaching deadline (within 7 days)
+      const now = new Date();
+      const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const approachingDeadline = teamGoals.filter(tg => {
+        if (!tg.due_date) return false;
+        const dueDate = new Date(tg.due_date);
+        return dueDate >= now && dueDate <= sevenDaysFromNow && (tg.latest_completion || 0) < 100;
+      });
+      
+      // Calculate overdue progress updates (no update in 2 weeks)
+      const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+      const overdueUpdates = teamGoals.filter(tg => {
+        if (!tg.last_updated) return false;
+        const lastUpdated = new Date(tg.last_updated);
+        return lastUpdated < twoWeeksAgo && (tg.latest_completion || 0) < 100;
+      });
+      
+      // Get unique employees with overdue updates
+      const uniqueOverdueEmployees = [...new Set(overdueUpdates.map(tg => tg.employee_id))];
+      
+      const hasActions = pendingLifeEvents.length > 0 || pendingWeightageChanges.length > 0 || 
+                        approachingDeadline.length > 0 || uniqueOverdueEmployees.length > 0;
+      
+      if (!hasActions) {
+        section.innerHTML = '';
+        return;
+      }
+      
+      section.innerHTML = `
+        <div class="card actions-required-card">
+          <div class="card-header">
+            <h3 class="card-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              Actions Required
+            </h3>
+          </div>
+          
+          ${pendingLifeEvents.length > 0 ? `
+            <div class="action-section">
+              <h4 class="action-title">
+                <span class="badge badge-warning">${pendingLifeEvents.length}</span>
+                Pending Life Events
+              </h4>
+              <div class="action-list">
+                ${pendingLifeEvents.map(le => `
+                  <div class="action-item">
+                    <div class="action-content">
+                      <strong>${le.employee_name}</strong>
+                      <span>${le.event_type} - ${le.description || 'No description'}</span>
+                      <small>Submitted: ${le.created_at || 'Unknown'}</small>
+                    </div>
+                    <div class="action-buttons">
+                      <button class="btn btn-sm btn-success" onclick="approveLifeEvent('${le.id}')">Approve</button>
+                      <button class="btn btn-sm btn-danger" onclick="rejectLifeEvent('${le.id}')">Reject</button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+          
+          ${pendingWeightageChanges.length > 0 ? `
+            <div class="action-section">
+              <h4 class="action-title">
+                <span class="badge badge-warning">${pendingWeightageChanges.length}</span>
+                Pending Weightage Changes
+              </h4>
+              <div class="action-list">
+                ${pendingWeightageChanges.map(wc => `
+                  <div class="action-item">
+                    <div class="action-content">
+                      <strong>${wc.employee_name}</strong>
+                      <span>Goal: ${wc.goal_title}</span>
+                      <small>Old Weightage: ${wc.old_weightage}% → New Weightage: ${wc.new_weightage}%</small>
+                    </div>
+                    <div class="action-buttons">
+                      <button class="btn btn-sm btn-success" onclick="approveWeightageChange('${wc.id}')">Approve</button>
+                      <button class="btn btn-sm btn-danger" onclick="rejectWeightageChange('${wc.id}')">Reject</button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+          
+          ${approachingDeadline.length > 0 ? `
+            <div class="action-section">
+              <h4 class="action-title">
+                <span class="badge badge-danger">${approachingDeadline.length}</span>
+                Goals Approaching Deadline (7 days)
+              </h4>
+              <div class="action-list">
+                ${approachingDeadline.map(ad => `
+                  <div class="action-item">
+                    <div class="action-content">
+                      <strong>${ad.employee_name}</strong>
+                      <span>${ad.goal_title}</span>
+                      <small>Due: ${ad.due_date} | Progress: ${ad.latest_completion || 0}%</small>
+                    </div>
+                    <div class="action-buttons">
+                      <button class="btn btn-sm btn-secondary" onclick="navigateTo('manager-team')">View</button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+          
+          ${uniqueOverdueEmployees.length > 0 ? `
+            <div class="action-section">
+              <h4 class="action-title">
+                <span class="badge badge-danger">${uniqueOverdueEmployees.length}</span>
+                Overdue Progress Updates (2+ weeks)
+              </h4>
+              <div class="action-list">
+                ${team.filter(m => uniqueOverdueEmployees.includes(m.id)).map(m => `
+                  <div class="action-item">
+                    <div class="action-content">
+                      <strong>${m.name}</strong>
+                      <span>${m.position || 'Employee'}</span>
+                      <small>No progress update in over 2 weeks</small>
+                    </div>
+                    <div class="action-buttons">
+                      <button class="btn btn-sm btn-secondary" onclick="navigateTo('manager-team')">View</button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    // ============ MY REQUESTS SECTION (EMPLOYEE) ============
+
+    function loadMyRequestsSection(lifeEvents) {
+      const section = document.getElementById('my-requests-section');
+      if (!section) return;
+      
+      if (!lifeEvents || lifeEvents.length === 0) {
+        section.innerHTML = `
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                My Requests
+              </h3>
+            </div>
+            <div class="empty-state">
+              <p>No life event requests yet</p>
+              <button class="btn btn-primary btn-sm" onclick="navigateTo('life-events')">Submit Request</button>
+            </div>
+          </div>
+        `;
+        return;
+      }
+      
+      const pending = lifeEvents.filter(le => le.status === 'PENDING');
+      const approved = lifeEvents.filter(le => le.status === 'APPROVED');
+      const rejected = lifeEvents.filter(le => le.status === 'REJECTED');
+      
+      section.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              My Requests
+            </h3>
+          </div>
+          
+          <div class="tabs">
+            <div class="tab active" onclick="filterRequests('all', this)">All (${lifeEvents.length})</div>
+            <div class="tab" onclick="filterRequests('pending', this)">Pending (${pending.length})</div>
+            <div class="tab" onclick="filterRequests('approved', this)">Approved (${approved.length})</div>
+            <div class="tab" onclick="filterRequests('rejected', this)">Rejected (${rejected.length})</div>
+          </div>
+          
+          <div class="requests-list">
+            ${lifeEvents.map(le => `
+              <div class="request-item" data-status="${le.status}">
+                <div class="request-content">
+                  <div class="request-header">
+                    <strong>${le.event_type}</strong>
+                    <span class="badge badge-${le.status === 'APPROVED' ? 'success' : le.status === 'REJECTED' ? 'danger' : 'warning'}">${le.status}</span>
+                  </div>
+                  <p>${le.description || 'No description'}</p>
+                  <small>Submitted: ${le.created_at || 'Unknown'}</small>
+                  ${le.rejection_reason ? `<small class="text-danger">Reason: ${le.rejection_reason}</small>` : ''}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function filterRequests(status, tabElement) {
+      // Update tabs
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      tabElement.classList.add('active');
+      
+      // Filter requests
+      const items = document.querySelectorAll('.request-item');
+      items.forEach(item => {
+        if (status === 'all') {
+          item.style.display = 'flex';
+        } else {
+          item.style.display = item.dataset.status === status.toUpperCase() ? 'flex' : 'none';
+        }
+      });
+    }
+
+    // Action handlers for manager
+    async function approveLifeEvent(id) {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`/api/manager/approve-life-event/${id}`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approved: true })
+        });
+        if (response.ok) {
+          alert('Life event approved');
+          navigateTo('dashboard');
+        }
+      } catch (e) {
+        alert('Error approving life event');
+      }
+    }
+
+    async function rejectLifeEvent(id) {
+      const reason = prompt('Enter rejection reason:');
+      if (!reason) return;
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`/api/manager/approve-life-event/${id}`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approved: false, reason })
+        });
+        if (response.ok) {
+          alert('Life event rejected');
+          navigateTo('dashboard');
+        }
+      } catch (e) {
+        alert('Error rejecting life event');
+      }
+    }
+
+    async function approveWeightageChange(id) {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`/api/manager/approve-weightage/${id}`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approved: true })
+        });
+        if (response.ok) {
+          alert('Weightage change approved');
+          navigateTo('dashboard');
+        }
+      } catch (e) {
+        alert('Error approving weightage change');
+      }
+    }
+
+    async function rejectWeightageChange(id) {
+      const reason = prompt('Enter rejection reason:');
+      if (!reason) return;
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`/api/manager/approve-weightage/${id}`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approved: false, reason })
+        });
+        if (response.ok) {
+          alert('Weightage change rejected');
+          navigateTo('dashboard');
+        }
+      } catch (e) {
+        alert('Error rejecting weightage change');
+      }
+    }
+
+    function filterByPendingApprovals() {
+      navigateTo('life-events');
+    }
+
+    // ============ CHART RENDERING FUNCTIONS ============
+
+    function initManagerCharts(stats, teamGoals) {
+      // Team Performance Donut Chart
+      const teamPerfCtx = document.getElementById('teamPerformanceChart');
+      if (teamPerfCtx) {
+        new Chart(teamPerfCtx, {
+          type: 'doughnut',
+          data: {
+            labels: ['On Track (70%+)', 'Needs Improvement (<40%)', 'In Progress (40-70%)', 'Completed'],
+            datasets: [{
+              data: [
+                stats.onTrack || 0,
+                stats.needsImprovement || 0,
+                (stats.activeGoals || 0) - (stats.onTrack || 0) - (stats.needsImprovement || 0),
+                stats.completedGoals || 0
+              ],
+              backgroundColor: ['#059669', '#dc2626', '#d97706', '#3b82f6'],
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: { padding: 15, usePointStyle: true }
+              }
+            }
+          }
+        });
+      }
+      
+      // Goals Progress Bar Chart
+      const goalsProgressCtx = document.getElementById('goalsProgressChart');
+      if (goalsProgressCtx && teamGoals && teamGoals.length > 0) {
+        const uniqueGoals = [...new Map(teamGoals.map(g => [g.goal_id, { title: g.goal_title, completion: g.latest_completion || 0 }])).values()].slice(0, 5);
+        new Chart(goalsProgressCtx, {
+          type: 'bar',
+          data: {
+            labels: uniqueGoals.map(g => g.title.substring(0, 15) + '...'),
+            datasets: [{
+              label: 'Completion %',
+              data: uniqueGoals.map(g => g.completion),
+              backgroundColor: uniqueGoals.map(g => g.completion >= 70 ? '#059669' : g.completion >= 40 ? '#d97706' : '#dc2626'),
+              borderRadius: 4
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: { beginAtZero: true, max: 100 }
+            },
+            plugins: {
+              legend: { display: false }
+            }
+          }
+        });
+      }
+    }
+
+    function initAdminCharts(stats) {
+      // Goals Overview Donut Chart
+      const goalsOverviewCtx = document.getElementById('goalsOverviewChart');
+      if (goalsOverviewCtx) {
+        new Chart(goalsOverviewCtx, {
+          type: 'doughnut',
+          data: {
+            labels: ['Active', 'Completed'],
+            datasets: [{
+              data: [stats.activeGoals || 0, stats.completedGoals || 0],
+              backgroundColor: ['#3b82f6', '#059669'],
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: { padding: 15, usePointStyle: true }
+              }
+            }
+          }
+        });
+      }
+      
+      // Department Comparison Bar Chart
+      const deptCtx = document.getElementById('departmentComparisonChart');
+      if (deptCtx) {
+        // Simulated department data - in real app, fetch from API
+        const departments = ['Engineering', 'Sales', 'Marketing', 'HR', 'Support'];
+        const deptCompletion = [75, 82, 68, 90, 71];
+        
+        new Chart(deptCtx, {
+          type: 'bar',
+          data: {
+            labels: departments,
+            datasets: [{
+              label: 'Completion %',
+              data: deptCompletion,
+              backgroundColor: deptCompletion.map(v => v >= 70 ? '#059669' : v >= 50 ? '#d97706' : '#dc2626'),
+              borderRadius: 4
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: { beginAtZero: true, max: 100 }
+            },
+            plugins: {
+              legend: { display: false }
+            }
+          }
+        });
+      }
+    }
+
+    function initEmployeeCharts(stats, goals) {
+      // Goals Radar Chart (Spider Chart)
+      const radarCtx = document.getElementById('goalsRadarChart');
+      if (radarCtx && goals && goals.length > 0) {
+        const categories = {};
+        goals.forEach(g => {
+          const cat = g.category || 'General';
+          if (!categories[cat]) categories[cat] = [];
+          categories[cat].push(g.latest_completion || 0);
+        });
+        
+        const categoryLabels = Object.keys(categories);
+        const categoryData = categoryLabels.map(cat => {
+          const completions = categories[cat];
+          return completions.reduce((a, b) => a + b, 0) / completions.length;
+        });
+        
+        new Chart(radarCtx, {
+          type: 'radar',
+          data: {
+            labels: categoryLabels.length > 0 ? categoryLabels : ['Goals'],
+            datasets: [{
+              label: 'Completion %',
+              data: categoryData.length > 0 ? categoryData : [0],
+              backgroundColor: 'rgba(59, 130, 246, 0.2)',
+              borderColor: '#3b82f6',
+              pointBackgroundColor: '#3b82f6',
+              pointBorderColor: '#fff',
+              pointHoverBackgroundColor: '#fff',
+              pointHoverBorderColor: '#3b82f6'
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              r: {
+                beginAtZero: true,
+                max: 100,
+                ticks: { stepSize: 20 }
+              }
+            },
+            plugins: {
+              legend: { display: false }
+            }
+          }
+        });
+      }
+      
+      // Goal Progress Bars
+      const progressBarsContainer = document.getElementById('goalProgressBars');
+      if (progressBarsContainer && goals && goals.length > 0) {
+        progressBarsContainer.innerHTML = goals.slice(0, 5).map(g => `
+          <div class="goal-progress-item">
+            <div class="progress-bar-header">
+              <span class="progress-bar-label">${g.goal_title}</span>
+              <span class="progress-bar-value">${g.latest_completion || 0}%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill ${(g.latest_completion || 0) >= 70 ? 'success' : (g.latest_completion || 0) >= 40 ? 'warning' : 'danger'}" style="width: ${Math.min(g.latest_completion || 0, 100)}%"></div>
+            </div>
+          </div>
+        `).join('');
+      }
     }
 
     // ============ ADMIN RENDER FUNCTIONS ============

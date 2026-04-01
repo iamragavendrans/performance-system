@@ -34,6 +34,12 @@ const requireRole = (...roles) => {
   };
 };
 
+// Helper to verify manager has permission over employee
+function validateManagerEmployee(managerId, employeeId, db) {
+  const employee = db.prepare('SELECT manager_id FROM users WHERE id = ?').get(employeeId);
+  return employee && employee.manager_id === managerId;
+}
+
 // ============ Authentication Routes ============
 
 // Register (Admin only can create other users)
@@ -525,8 +531,14 @@ router.get('/manager/team', authenticate, requireRole('MANAGER', 'ADMIN'), async
 // Assign goal to employee
 router.post('/manager/assign-goal', authenticate, requireRole('MANAGER', 'ADMIN'), async (req, res) => {
   try {
+    const db = require('../db/database');
     const GoalService = require('../services/goalService');
     const { employeeId, goalId, customizedTitle, customizedCriteria } = req.body;
+    
+    // Validate manager-employee relationship
+    if (!validateManagerEmployee(req.user.id, employeeId, db)) {
+      return res.status(403).json({ error: "You don't have permission to perform this action on this employee" });
+    }
     
     const assignment = GoalService.assignGoal(employeeId, goalId, customizedTitle, customizedCriteria, req.user.id);
     res.json(assignment);
@@ -717,10 +729,9 @@ router.post('/manager/life-events/:id/approve', authenticate, requireRole('MANAG
       return res.status(404).json({ error: 'Life event not found' });
     }
     
-    // Verify the manager is the employee's manager
-    const employee = db.get('SELECT manager_id FROM users WHERE id = ?', [event.employee_id]);
-    if (!employee || employee.manager_id !== req.user.id) {
-      return res.status(403).json({ error: 'You can only approve life events for your direct reports' });
+    // Validate manager-employee relationship
+    if (!validateManagerEmployee(req.user.id, event.employee_id, db)) {
+      return res.status(403).json({ error: "You don't have permission to perform this action on this employee" });
     }
     
     if (event.status !== 'PENDING') {
@@ -762,10 +773,9 @@ router.post('/manager/life-events/:id/reject', authenticate, requireRole('MANAGE
       return res.status(404).json({ error: 'Life event not found' });
     }
     
-    // Verify the manager is the employee's manager
-    const employee = db.get('SELECT manager_id FROM users WHERE id = ?', [event.employee_id]);
-    if (!employee || employee.manager_id !== req.user.id) {
-      return res.status(403).json({ error: 'You can only reject life events for your direct reports' });
+    // Validate manager-employee relationship
+    if (!validateManagerEmployee(req.user.id, event.employee_id, db)) {
+      return res.status(403).json({ error: "You don't have permission to perform this action on this employee" });
     }
     
     if (event.status !== 'PENDING') {
@@ -799,9 +809,14 @@ router.post('/manager/employees/:employeeId/life-event', authenticate, requireRo
 // Finalize rating with empathy adjustment
 router.post('/manager/ratings/:employeeId/finalize', authenticate, requireRole('MANAGER', 'ADMIN'), async (req, res) => {
   try {
-    const EmpathyService = require('../services/empathyService');
     const db = require('../db/database');
+    const EmpathyService = require('../services/empathyService');
     const { raw_score, rating_period } = req.body;
+    
+    // Validate manager-employee relationship
+    if (!validateManagerEmployee(req.user.id, req.params.employeeId, db)) {
+      return res.status(403).json({ error: "You don't have permission to perform this action on this employee" });
+    }
     
     // Get rating period dates
     const period = db.get('SELECT * FROM rating_periods WHERE id = ?', [rating_period]);
@@ -840,6 +855,12 @@ router.post('/manager/ratings/:employeeId/finalize', authenticate, requireRole('
 router.get('/manager/employees/:employeeId/recommendations', authenticate, requireRole('MANAGER', 'ADMIN'), async (req, res) => {
   try {
     const db = require('../db/database');
+    
+    // Validate manager-employee relationship
+    if (!validateManagerEmployee(req.user.id, req.params.employeeId, db)) {
+      return res.status(403).json({ error: "You don't have permission to perform this action on this employee" });
+    }
+    
     const recs = db.all(
       `SELECT * FROM recommendations WHERE employee_id = ? ORDER BY priority DESC`,
       [req.params.employeeId]
@@ -847,6 +868,102 @@ router.get('/manager/employees/:employeeId/recommendations', authenticate, requi
     res.json(recs);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Get pending weightage changes for manager's team
+router.get('/manager/pending-weightage-changes', authenticate, requireRole('MANAGER'), async (req, res) => {
+  try {
+    const db = require('../db/database');
+    const changes = db.all(
+      `SELECT eg.*, u.name as employee_name, g.title as goal_title, eg.customized_title as goal_customized_title
+       FROM employee_goals eg
+       JOIN users u ON eg.employee_id = u.id
+       LEFT JOIN goals g ON eg.goal_id = g.id
+       WHERE u.manager_id = ? AND eg.weightage_pending_approval = 1
+       ORDER BY eg.assigned_at DESC`,
+      [req.user.id]
+    );
+    res.json(changes);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Approve weightage change
+router.post('/manager/goal-weightage/:id/approve', authenticate, requireRole('MANAGER'), async (req, res) => {
+  try {
+    const db = require('../db/database');
+    const { weightage } = req.body;
+    
+    // Get the employee goal
+    const employeeGoal = db.get(
+      `SELECT eg.*, u.manager_id FROM employee_goals eg
+       JOIN users u ON eg.employee_id = u.id
+       WHERE eg.id = ?`,
+      [req.params.id]
+    );
+    
+    if (!employeeGoal) {
+      return res.status(404).json({ error: 'Employee goal not found' });
+    }
+    
+    // Validate manager-employee relationship
+    if (employeeGoal.manager_id !== req.user.id) {
+      return res.status(403).json({ error: "You don't have permission to perform this action on this employee" });
+    }
+    
+    if (!employeeGoal.weightage_pending_approval) {
+      return res.status(400).json({ error: 'This weightage change is not pending approval' });
+    }
+    
+    // Update weightage and clear pending flag
+    db.run(
+      `UPDATE employee_goals SET weightage = ?, weightage_pending_approval = 0, updated_at = ? WHERE id = ?`,
+      [weightage || employeeGoal.weightage, new Date().toISOString(), req.params.id]
+    );
+    
+    res.json({ success: true, message: 'Weightage change approved', weightage: weightage || employeeGoal.weightage });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Reject weightage change
+router.post('/manager/goal-weightage/:id/reject', authenticate, requireRole('MANAGER'), async (req, res) => {
+  try {
+    const db = require('../db/database');
+    
+    // Get the employee goal
+    const employeeGoal = db.get(
+      `SELECT eg.*, u.manager_id FROM employee_goals eg
+       JOIN users u ON eg.employee_id = u.id
+       WHERE eg.id = ?`,
+      [req.params.id]
+    );
+    
+    if (!employeeGoal) {
+      return res.status(404).json({ error: 'Employee goal not found' });
+    }
+    
+    // Validate manager-employee relationship
+    if (employeeGoal.manager_id !== req.user.id) {
+      return res.status(403).json({ error: "You don't have permission to perform this action on this employee" });
+    }
+    
+    if (!employeeGoal.weightage_pending_approval) {
+      return res.status(400).json({ error: 'This weightage change is not pending approval' });
+    }
+    
+    // Clear pending flag without changing weightage
+    db.run(
+      `UPDATE employee_goals SET weightage_pending_approval = 0, updated_at = ? WHERE id = ?`,
+      [new Date().toISOString(), req.params.id]
+    );
+    
+    res.json({ success: true, message: 'Weightage change rejected' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 
