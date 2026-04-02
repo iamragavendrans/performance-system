@@ -36,7 +36,7 @@ const requireRole = (...roles) => {
 
 // Helper to verify manager has permission over employee
 function validateManagerEmployee(managerId, employeeId, db) {
-  const employee = db.prepare('SELECT manager_id FROM users WHERE id = ?').get(employeeId);
+  const employee = db.get('SELECT manager_id FROM users WHERE id = ?', [employeeId]);
   return employee && employee.manager_id === managerId;
 }
 
@@ -919,8 +919,8 @@ router.post('/manager/goal-weightage/:id/approve', authenticate, requireRole('MA
     
     // Update weightage and clear pending flag
     db.run(
-      `UPDATE employee_goals SET weightage = ?, weightage_pending_approval = 0, updated_at = ? WHERE id = ?`,
-      [weightage || employeeGoal.weightage, new Date().toISOString(), req.params.id]
+      `UPDATE employee_goals SET weightage = ?, weightage_pending_approval = 0 WHERE id = ?`,
+      [weightage || employeeGoal.weightage, req.params.id]
     );
     
     res.json({ success: true, message: 'Weightage change approved', weightage: weightage || employeeGoal.weightage });
@@ -957,8 +957,8 @@ router.post('/manager/goal-weightage/:id/reject', authenticate, requireRole('MAN
     
     // Clear pending flag without changing weightage
     db.run(
-      `UPDATE employee_goals SET weightage_pending_approval = 0, updated_at = ? WHERE id = ?`,
-      [new Date().toISOString(), req.params.id]
+      `UPDATE employee_goals SET weightage_pending_approval = 0 WHERE id = ?`,
+      [req.params.id]
     );
     
     res.json({ success: true, message: 'Weightage change rejected' });

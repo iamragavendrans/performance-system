@@ -95,6 +95,12 @@
     let currentUser = null;
     let currentView = 'dashboard';
 
+    // Utility: escape HTML to prevent XSS in template literals
+    function escapeHtml(str) {
+      if (str == null) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
     // Check for saved token on load
     const savedToken = localStorage.getItem('token');
     if (savedToken) {
@@ -809,52 +815,54 @@
 
     // Action handlers for manager
     async function approveLifeEvent(id) {
-      try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`/api/manager/approve-life-event/${id}`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ approved: true })
-        });
-        if (response.ok) {
-          alert('Life event approved');
-          navigateTo('dashboard');
-        }
-      } catch (e) {
-        alert('Error approving life event');
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/manager/life-events/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        alert('Life event approved!');
+        navigateTo('life-events');
+      } else {
+        const err = await response.json();
+        alert('Failed to approve: ' + err.error);
       }
     }
 
     async function rejectLifeEvent(id) {
-      const reason = prompt('Enter rejection reason:');
+      const reason = prompt('Please provide a reason for rejection:');
       if (!reason) return;
-      try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`/api/manager/approve-life-event/${id}`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ approved: false, reason })
-        });
-        if (response.ok) {
-          alert('Life event rejected');
-          navigateTo('dashboard');
-        }
-      } catch (e) {
-        alert('Error rejecting life event');
+
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/manager/life-events/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ reason })
+      });
+
+      if (response.ok) {
+        alert('Life event rejected!');
+        navigateTo('life-events');
+      } else {
+        const err = await response.json();
+        alert('Failed to reject: ' + err.error);
       }
     }
 
     async function approveWeightageChange(id) {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch(`/api/manager/approve-weightage/${id}`, {
+        const response = await fetch(`/api/manager/goal-weightage/${id}/approve`, {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ approved: true })
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
         });
         if (response.ok) {
           alert('Weightage change approved');
           navigateTo('dashboard');
+        } else {
+          const err = await response.json();
+          alert('Failed to approve: ' + err.error);
         }
       } catch (e) {
         alert('Error approving weightage change');
@@ -866,10 +874,10 @@
       if (!reason) return;
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch(`/api/manager/approve-weightage/${id}`, {
+        const response = await fetch(`/api/manager/goal-weightage/${id}/reject`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ approved: false, reason })
+          body: JSON.stringify({ reason })
         });
         if (response.ok) {
           alert('Weightage change rejected');
@@ -1104,7 +1112,7 @@
                     <td>${u.department || '-'}</td>
                     <td>${u.position || '-'}</td>
                     <td>
-                      <button class="btn btn-sm btn-secondary" onclick="showEditUserModal('${u.id}', '${u.name}', '${u.email}', '${u.role}', '${u.manager_id || ''}', '${u.department || ''}', '${u.position || ''}')"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                      <button class="btn btn-sm btn-secondary" onclick="showEditUserModal('${u.id}', '${escapeHtml(u.name)}', '${escapeHtml(u.email)}', '${u.role}', '${u.manager_id || ''}', '${escapeHtml(u.department)}', '${escapeHtml(u.position)}')"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
                       ${u.id !== currentUser.id ? `<button class="btn btn-sm btn-danger" onclick="deleteUser('${u.id}')"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>` : ''}
                     </td>
                   </tr>
@@ -1143,7 +1151,7 @@
                       <td>${g.success_criteria || '-'}</td>
                       <td>${g.competencies || '-'}</td>
                       <td>
-                        <button class="btn btn-sm btn-secondary" onclick="showEditGoalModal('${g.id}', '${g.title}', '${g.description || ''}', '${g.success_criteria || ''}', '${g.competencies || ''}')"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                        <button class="btn btn-sm btn-secondary" onclick="showEditGoalModal('${g.id}', '${escapeHtml(g.title)}', '${escapeHtml(g.description)}', '${escapeHtml(g.success_criteria)}', '${escapeHtml(g.competencies)}')"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
                         <button class="btn btn-sm btn-danger" onclick="deleteGoal('${g.id}')"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
                       </td>
                     </tr>
@@ -1182,7 +1190,7 @@
                     <td>${p.end_date}</td>
                     <td><span class="badge ${p.is_active ? 'badge-success' : 'badge-info'}">${p.is_active ? 'Active' : 'Inactive'}</span></td>
                     <td>
-                      <button class="btn btn-sm btn-secondary" onclick="showEditPeriodModal('${p.id}', '${p.name}', '${p.start_date}', '${p.end_date}', ${p.is_active})"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                      <button class="btn btn-sm btn-secondary" onclick="showEditPeriodModal('${p.id}', '${escapeHtml(p.name)}', '${p.start_date}', '${p.end_date}', ${p.is_active})"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
                       <button class="btn btn-sm btn-danger" onclick="deletePeriod('${p.id}')"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
                     </td>
                   </tr>
@@ -1211,7 +1219,7 @@
               <div class="flex justify-between items-center mb-3">
                 <h4>${group.name}</h4>
                 <div>
-                  <button class="btn btn-sm btn-secondary" onclick="showEditGroupModal('${group.id}', '${group.name}', '${group.description || ''}')"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                  <button class="btn btn-sm btn-secondary" onclick="showEditGroupModal('${group.id}', '${escapeHtml(group.name)}', '${escapeHtml(group.description)}')"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
                   <button class="btn btn-sm btn-danger" onclick="deleteGroup('${group.id}')"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
                 </div>
               </div>
@@ -1223,7 +1231,7 @@
                     <span class="badge badge-info">${g.title}</span>
                   `).join('') || '<span style="color: var(--text-secondary);">No goals mapped</span>'}
                 </div>
-                <button class="btn btn-sm btn-primary" style="margin-top: 10px;" onclick="showMapGoalsModal('${group.id}', '${group.name}')">Map Goals</button>
+                <button class="btn btn-sm btn-primary" style="margin-top: 10px;" onclick="showMapGoalsModal('${group.id}', '${escapeHtml(group.name)}')">Map Goals</button>
               </div>
             </div>
           `).join('')}
@@ -1401,8 +1409,8 @@
                         </td>`;
                       }).join('')}
                       <td>
-                        <button class="btn btn-sm btn-secondary" onclick="showAssignGoalModal('${m.id}', '${m.name}')">Goals</button>
-                        <button class="btn btn-sm btn-secondary" onclick="showLinkProjectModal('${m.id}', '${m.name}')">Project</button>
+                        <button class="btn btn-sm btn-secondary" onclick="showAssignGoalModal('${m.id}', '${escapeHtml(m.name)}')">Goals</button>
+                        <button class="btn btn-sm btn-secondary" onclick="showLinkProjectModal('${m.id}', '${escapeHtml(m.name)}')">Project</button>
                       </td>
                     </tr>
                   `).join('')}
@@ -1509,7 +1517,7 @@
                       <td><strong>${g.title}</strong></td>
                       <td>${g.employees.join(', ')}</td>
                       <td>
-                        <button class="btn btn-sm btn-secondary" onclick="showRemoveCustomGoalModal('${g.id}', '${g.title}')">Remove from Team</button>
+                        <button class="btn btn-sm btn-secondary" onclick="showRemoveCustomGoalModal('${g.id}', '${escapeHtml(g.title)}')">Remove from Team</button>
                       </td>
                     </tr>
                   `).join('')}
@@ -1541,10 +1549,10 @@
     // ============ EMPLOYEE RENDER FUNCTIONS ============
 
     function renderMyGoals(goals, token) {
-      // Sort: needs attention first (below 40%), then going well (70%+), then completed
-      const needsAttention = goals.filter(g => (g.latest_completion || 0) < 40 && (g.latest_completion || 0) < 100);
-      const goingWell = goals.filter(g => (g.latest_completion || 0) >= 40 && (g.latest_completion || 0) < 100 && (g.latest_completion || 0) < 70);
-      const onTrack = goals.filter(g => (g.latest_completion || 0) >= 70 && (g.latest_completion || 0) < 100);
+      // Sort: needs attention first (below 40%), then on track (40-69%), then going well (70%+), then completed
+      const needsAttention = goals.filter(g => (g.latest_completion || 0) < 40 && g.status !== 'COMPLETED');
+      const onTrack = goals.filter(g => (g.latest_completion || 0) >= 40 && (g.latest_completion || 0) < 70 && g.status !== 'COMPLETED');
+      const goingWell = goals.filter(g => (g.latest_completion || 0) >= 70 && (g.latest_completion || 0) < 100 && g.status !== 'COMPLETED');
       const completed = goals.filter(g => (g.latest_completion || 0) >= 100 || g.status === 'COMPLETED');
       
       return `
@@ -1616,18 +1624,18 @@
           </div>
           
           <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <button class="btn btn-primary btn-sm" onclick="showUpdateProgressModal('${g.id}', '${g.customized_title || g.title}')">
+            <button class="btn btn-primary btn-sm" onclick="showUpdateProgressModal('${g.id}', '${escapeHtml(g.customized_title || g.title)}')">
               Update Progress
             </button>
-            <button class="btn btn-secondary btn-sm" onclick="showUploadFileModal('${g.id}', '${g.customized_title || g.title}')">
+            <button class="btn btn-secondary btn-sm" onclick="showUploadFileModal('${g.id}', '${escapeHtml(g.customized_title || g.title)}')">
               📎 Upload File
             </button>
             ${g.files && g.files.length > 0 ? `
-              <button class="btn btn-secondary btn-sm" onclick="showViewFilesModal('${g.id}', '${g.customized_title || g.title}')">
+              <button class="btn btn-secondary btn-sm" onclick="showViewFilesModal('${g.id}', '${escapeHtml(g.customized_title || g.title)}')">
                 View Files (${g.files.length})
               </button>
             ` : ''}
-            <button class="btn btn-secondary btn-sm" onclick="showUpdateWeightageModal('${g.id}', '${g.customized_title || g.title}', ${g.weightage || 0})">
+            <button class="btn btn-secondary btn-sm" onclick="showUpdateWeightageModal('${g.id}', '${escapeHtml(g.customized_title || g.title)}', ${g.weightage || 0})">
               Update Weightage
             </button>
           </div>
@@ -2662,42 +2670,6 @@
       }
     }
 
-    async function approveLifeEvent(id) {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`/api/manager/life-events/${id}/approve`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      if (response.ok) {
-        alert('Life event approved!');
-        navigateTo('life-events');
-      } else {
-        const err = await response.json();
-        alert('Failed to approve: ' + err.error);
-      }
-    }
-
-    async function rejectLifeEvent(id) {
-      const reason = prompt('Please provide a reason for rejection:');
-      if (!reason) return;
-      
-      const token = localStorage.getItem('token');
-      const response = await fetch(`/api/manager/life-events/${id}/reject`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ reason })
-      });
-      
-      if (response.ok) {
-        alert('Life event rejected!');
-        navigateTo('life-events');
-      } else {
-        const err = await response.json();
-        alert('Failed to reject: ' + err.error);
-      }
-    }
-
     // Manager Team Modals
     function showAddTeamMemberModal() {
       alert('To add team members, please contact Admin to create the user and assign them to your management.');
@@ -2861,11 +2833,22 @@
       }
     }
 
-    function showRemoveCustomGoalModal(goalId, goalTitle) {
-      if (!confirm(`Remove goal "${goalTitle}" from all team members?`)) return;
-      
-      // This would call an API to remove the goal assignment
-      alert('Goal removed from team members.');
+    async function showRemoveCustomGoalModal(goalId, goalTitle) {
+      if (!confirm(`Remove goal "${escapeHtml(goalTitle)}" from all team members?`)) return;
+
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/manager/custom-goals/${goalId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        alert('Goal removed successfully.');
+        navigateTo('manager-goals');
+      } else {
+        const err = await response.json();
+        alert('Failed to remove goal: ' + err.error);
+      }
     }
 
     function formatEventType(type) {
