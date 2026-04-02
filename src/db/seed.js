@@ -220,10 +220,10 @@ async function seedDatabase() {
   
   // 8. Create some ratings
   const ratingsData = [
-    { employeeId: employees[0].id, rawScore: 0.88, period: '2025 Q4' },
-    { employeeId: employees[1].id, rawScore: 0.72, period: '2025 Q4' },
-    { employeeId: employees[2].id, rawScore: 0.65, period: '2025 Q4' },
-    { employeeId: employees[3].id, rawScore: 0.82, period: '2025 Q4' },
+    { employeeId: employees[0].id, rawScore: 88, period: '2025 Q4' },
+    { employeeId: employees[1].id, rawScore: 72, period: '2025 Q4' },
+    { employeeId: employees[2].id, rawScore: 65, period: '2025 Q4' },
+    { employeeId: employees[3].id, rawScore: 82, period: '2025 Q4' },
   ];
   
   const admin = db.get("SELECT id FROM users WHERE role = 'ADMIN'");

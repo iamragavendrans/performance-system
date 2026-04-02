@@ -141,11 +141,16 @@ class EmpathyService {
   static getAdjustmentForEvent(eventType) {
     const adjustments = {
       'MATERNITY': { method: 'EXCLUDE', boost_percentage: 0 },
+      'MATERNITY_LEAVE': { method: 'EXCLUDE', boost_percentage: 0 },
       'PATERNITY': { method: 'EXCLUDE', boost_percentage: 0 },
+      'PATERNITY_LEAVE': { method: 'EXCLUDE', boost_percentage: 0 },
       'BEREAVEMENT': { method: 'PRORATE', boost_percentage: 0 },
       'ILLNESS': { method: 'PRORATE', boost_percentage: 0 },
+      'SICK_LEAVE': { method: 'PRORATE', boost_percentage: 0 },
       'SABBATICAL': { method: 'PRORATE', boost_percentage: 0 },
-      'CAREGIVING': { method: 'PRORATE', boost_percentage: 5 } // 5% boost for managing while caregiving
+      'CAREGIVING': { method: 'PRORATE', boost_percentage: 5 },
+      'FAMILY_EMERGENCY': { method: 'PRORATE', boost_percentage: 5 },
+      'PERSONAL_EMERGENCY': { method: 'PRORATE', boost_percentage: 5 }
     };
 
     return adjustments[eventType] || { method: 'PRORATE', boost_percentage: 0 };

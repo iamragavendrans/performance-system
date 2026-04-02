@@ -558,6 +558,40 @@ router.get('/manager/team-goals', authenticate, requireRole('MANAGER', 'ADMIN'),
   }
 });
 
+// Provide manager feedback on a team goal
+router.post('/manager/team-goals/:employeeGoalId/feedback', authenticate, requireRole('MANAGER', 'ADMIN'), async (req, res) => {
+  try {
+    const db = require('../db/database');
+    const { feedback } = req.body;
+
+    if (!feedback || !feedback.trim()) {
+      return res.status(400).json({ error: 'Feedback text is required' });
+    }
+
+    const eg = db.get(
+      `SELECT eg.*, u.manager_id FROM employee_goals eg JOIN users u ON eg.employee_id = u.id WHERE eg.id = ?`,
+      [req.params.employeeGoalId]
+    );
+
+    if (!eg) {
+      return res.status(404).json({ error: 'Employee goal not found' });
+    }
+
+    if (eg.manager_id !== req.user.id) {
+      return res.status(403).json({ error: "You don't have permission to provide feedback on this goal" });
+    }
+
+    db.run(
+      `UPDATE employee_goals SET manager_feedback = ? WHERE id = ?`,
+      [feedback.trim(), req.params.employeeGoalId]
+    );
+
+    res.json({ success: true, message: 'Feedback submitted', feedback: feedback.trim() });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 // Get team report (AI-generated)
 router.get('/manager/team-report/:period', authenticate, requireRole('MANAGER', 'ADMIN'), async (req, res) => {
   try {
@@ -796,11 +830,33 @@ router.post('/manager/life-events/:id/reject', authenticate, requireRole('MANAGE
 // Record life event for employee
 router.post('/manager/employees/:employeeId/life-event', authenticate, requireRole('MANAGER', 'ADMIN'), async (req, res) => {
   try {
-    const EmpathyService = require('../services/empathyService');
+    const db = require('../db/database');
+    const { v4: uuidv4 } = require('uuid');
     const { event_type, start_date, end_date, reason } = req.body;
-    
-    const event = EmpathyService.recordLifeEvent(req.params.employeeId, event_type, start_date, end_date, reason);
-    res.json(event);
+
+    if (!event_type || !start_date || !end_date) {
+      return res.status(400).json({ error: 'Event type, start date, and end date are required' });
+    }
+
+    // Validate manager-employee relationship
+    if (!validateManagerEmployee(req.user.id, req.params.employeeId, db)) {
+      return res.status(403).json({ error: "You don't have permission to perform this action on this employee" });
+    }
+
+    const id = uuidv4();
+
+    // Insert into life_events as auto-approved (manager-created)
+    db.run(
+      `INSERT INTO life_events (id, employee_id, event_type, start_date, end_date, reason, status, adjustment_percentage, verified_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'APPROVED', 0, ?, ?, ?)`,
+      [id, req.params.employeeId, event_type, start_date, end_date, reason || null, req.user.id, new Date().toISOString(), new Date().toISOString()]
+    );
+
+    // Also record in empathy_adjustments for rating calculations
+    const EmpathyService = require('../services/empathyService');
+    EmpathyService.recordLifeEvent(req.params.employeeId, event_type, start_date, end_date, reason);
+
+    res.json({ id, event_type, start_date, end_date, reason, status: 'APPROVED' });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -1084,17 +1140,22 @@ router.get('/employee/stats', authenticate, async (req, res) => {
   try {
     const db = require('../db/database');
     
-    const goals = db.all('SELECT * FROM employee_goals WHERE employee_id = ?', [req.user.id]);
+    const goals = db.all(
+      `SELECT eg.*, g.title as goal_title FROM employee_goals eg
+       JOIN goals g ON eg.goal_id = g.id
+       WHERE eg.employee_id = ?`,
+      [req.user.id]
+    );
     const activeGoals = goals.filter(g => g.status === 'ACTIVE');
     const completedGoals = goals.filter(g => g.status === 'COMPLETED');
-    
+
     const avgCompletion = activeGoals.length > 0
       ? Math.round(activeGoals.reduce((sum, g) => sum + (g.latest_completion || 0), 0) / activeGoals.length)
       : 0;
-    
+
     const needsAttention = activeGoals.filter(g => (g.latest_completion || 0) < 40);
     const goingWell = activeGoals.filter(g => (g.latest_completion || 0) >= 70);
-    
+
     // Find focus priority based on weightage
     let focusPriority = 'N/A';
     if (activeGoals.length > 0) {
@@ -1118,7 +1179,7 @@ router.get('/employee/stats', authenticate, async (req, res) => {
       needsAttention: needsAttention.length,
       goingWell: goingWell.length,
       focusPriority: focusPriority,
-      lastRating: lastRating ? Math.round(lastRating.final_score * 100) + '%' : 'N/A',
+      lastRating: lastRating ? Math.round(lastRating.final_score) + '%' : 'N/A',
       pendingApprovals: pendingWeightage?.count || 0
     });
   } catch (error) {
