@@ -625,10 +625,12 @@ router.get('/manager/stats', authenticate, requireRole('MANAGER'), async (req, r
       ? Math.round(teamGoals.reduce((sum, g) => sum + (g.latest_completion || 0), 0) / teamGoals.length)
       : 0;
     
-    // Pending approvals (life events)
+    // Pending approvals (life events for this manager's team only)
     const pendingApprovals = db.get(
-      'SELECT COUNT(*) as count FROM life_events WHERE status = ?',
-      ['PENDING']
+      `SELECT COUNT(*) as count FROM life_events le
+       JOIN users u ON le.employee_id = u.id
+       WHERE le.status = 'PENDING' AND u.manager_id = ?`,
+      [req.user.id]
     );
     
     res.json({
