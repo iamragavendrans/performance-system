@@ -201,7 +201,7 @@ class GoalService {
 
     // Trigger AI feedback generation (async)
     if (employeeGoal) {
-      AIService = require('./aiService');
+      const AIService = require('./aiService');
       AIService.generateGoalFeedback(
         { id: employeeGoal.employee_id, name: employeeGoal.employee_name, position: employeeGoal.position, department: employeeGoal.department },
         { id: employeeGoal.goal_id, title: employeeGoal.customized_title || employeeGoal.title, success_criteria: employeeGoal.customized_criteria || employeeGoal.success_criteria },
